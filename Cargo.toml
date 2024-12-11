@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = "4.1"         # For parsing command-line arguments
+serde = { version = "1.0", features = ["derive"] }  # For data serialization
+serde_json = "1.0"    # For working with JSON data
