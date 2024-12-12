@@ -1,91 +1,107 @@
-use clap::{Arg, Command};  // Importing clap to handle command-line argument parsing
-use serde::{Serialize, Deserialize};  // Importing Serde traits for serializing and deserializing data
-use std::collections::HashMap;  // Importing HashMap to store tasks in memory with key-value pairs
+use clap::{Arg, Command};  // Importing necessary clap modules for command-line argument parsing
+use serde::{Serialize, Deserialize};  // Importing Serde for serializing and deserializing data
+use std::collections::HashMap;  // Importing HashMap for in-memory task storage
+use std::fs::{self, File};  // For file operations
+use std::io::{self, Read, Write};  // For reading and writing to files
 
-#[derive(Serialize, Deserialize, Debug)]  // The Task struct will represent individual tasks
+#[derive(Serialize, Deserialize, Debug)]  // Deriving Serialize and Deserialize traits for Task struct
 struct Task {
-    name: String,             // Name of the task (unique identifier)
-    description: String,      // A brief description of what the task entails
-    priority: String,         // Priority level (e.g., High, Medium, Low)
-    completed: bool,          // Whether the task is completed or not
+    name: String,
+    description: String,
+    priority: String,
+    completed: bool,
+}
+
+const STORAGE_FILE: &str = "tasks.json";  // File where tasks will be stored
+
+fn load_tasks_from_file() -> HashMap<String, Task> {
+    let mut tasks = HashMap::new();
+
+    if let Ok(mut file) = File::open(STORAGE_FILE) {
+        let mut data = String::new();
+        if file.read_to_string(&mut data).is_ok() {
+            if let Ok(parsed) = serde_json::from_str(&data) {
+                tasks = parsed;
+            }
+        }
+    }
+
+    tasks
+}
+
+fn save_tasks_to_file(tasks: &HashMap<String, Task>) -> io::Result<()> {
+    let data = serde_json::to_string_pretty(tasks).unwrap();
+    let mut file = File::create(STORAGE_FILE)?;
+    file.write_all(data.as_bytes())
 }
 
 fn main() {
-    // Create an in-memory storage for tasks using a HashMap, where task names are keys
-    let mut tasks: HashMap<String, Task> = HashMap::new();
+    let mut tasks: HashMap<String, Task> = load_tasks_from_file();  // Load tasks from file
 
-    // Define the structure of the CLI application using clap
-    let matches = Command::new("one-do-three")  // Name of the application
-        .about("A simple task management CLI")  // Short description of the app
-        .subcommand(                            // Adding a subcommand for "add"
+    // Defining the command-line interface using clap
+    let matches = Command::new("one-do-three")
+        .about("A simple task management CLI")
+        .subcommand(
             Command::new("add")
-                .about("Add a new task")        // Description of the "add" command
-                .arg(Arg::new("name")           // Argument for the task name
-                    .help("The name of the task")  // Explanation for the user
-                    .required(true))           // This argument is mandatory
-                .arg(Arg::new("description")    // Argument for the task description
-                    .help("The task description")  // Explanation for the user
-                    .required(true))           // This argument is mandatory
-                .arg(Arg::new("priority")       // Argument for the task priority
-                    .help("The priority of the task")  // Explanation for the user
-                    .required(true)),          // This argument is mandatory
+                .about("Add a new task")
+                .arg(Arg::new("name")
+                    .help("The name of the task")
+                    .required(true))
+                .arg(Arg::new("description")
+                    .help("The task description")
+                    .required(true))
+                .arg(Arg::new("priority")
+                    .help("The priority of the task")
+                    .required(true)),
         )
-        .subcommand(                            // Adding a subcommand for "list"
+        .subcommand(
             Command::new("list")
-                .about("List all tasks")        // Description of the "list" command
-                .arg(Arg::new("filter")         // Optional argument to filter tasks
-                    .long("filter")             // Prefix for using this argument (--filter)
-                    .help("Filter tasks by priority or completion status")  // Explanation
-                    .value_name("FILTER")),     // Name of the value expected for filtering
+                .about("List all tasks")
+                .arg(Arg::new("filter")
+                    .long("filter")
+                    .help("Filter tasks by priority or completion status")
+                    .value_name("FILTER")),
         )
-        .get_matches();  // Parse the command-line arguments provided by the user
+        .get_matches();
 
-    // Check if the "add" subcommand was called
+    // Handling the "add" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("add") {
-        let name = sub_matches.get_one::<String>("name").unwrap();  // Retrieve the task name
-        let description = sub_matches.get_one::<String>("description").unwrap();  // Task description
-        let priority = sub_matches.get_one::<String>("priority").unwrap();  // Task priority
+        let name = sub_matches.get_one::<String>("name").unwrap();
+        let description = sub_matches.get_one::<String>("description").unwrap();
+        let priority = sub_matches.get_one::<String>("priority").unwrap();
 
-        // Create a new Task instance with the provided data
         let new_task = Task {
             name: name.to_string(),
             description: description.to_string(),
             priority: priority.to_string(),
-            completed: false,  // Tasks are marked incomplete by default
+            completed: false,
         };
 
-        // Add the task to the in-memory HashMap, using its name as the key
-        tasks.insert(name.clone(), new_task);
-
-        // Print a confirmation message to the user
+        tasks.insert(name.clone(), new_task);  // Add the task to the in-memory storage
+        save_tasks_to_file(&tasks).expect("Failed to save tasks to file");  // Save tasks to file
         println!("Task added: {}", name);
     }
 
-    // Check if the "list" subcommand was called
+    // Handling the "list" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("list") {
         if tasks.is_empty() {
-            // If no tasks exist in the HashMap, notify the user
             println!("No tasks available.");
-            return;  // Exit the program after showing this message
+            return;
         }
 
-        // Check if a filter was provided
         let filter = sub_matches.get_one::<String>("filter");
         for (name, task) in &tasks {
             if let Some(filter) = filter {
-                // Skip tasks based on the filter criteria
                 if filter.eq_ignore_ascii_case("completed") && !task.completed {
-                    continue;  // Skip if the filter is "completed" and the task is not completed
+                    continue;
                 } else if filter.eq_ignore_ascii_case("incomplete") && task.completed {
-                    continue;  // Skip if the filter is "incomplete" and the task is completed
+                    continue;
                 } else if filter.eq_ignore_ascii_case(&task.priority) {
-                    // Matches priority (e.g., High, Medium, Low)
+                    // Match priority
                 } else {
-                    continue;  // Skip tasks that don't match any filter
+                    continue;
                 }
             }
-
-            // Display the task details
             println!(
                 "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
                 name, task.description, task.priority, task.completed
