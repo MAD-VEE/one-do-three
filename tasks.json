@@ -1,8 +1,8 @@
 {
   "Task 1": {
     "name": "Task 1",
-    "description": "First task description",
-    "priority": "High",
-    "completed": false
+    "description": "Updated description",
+    "priority": "Medium",
+    "completed": true
   }
 }
