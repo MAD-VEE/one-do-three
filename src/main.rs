@@ -1,213 +1,264 @@
-use clap::{Arg, Command}; // Import necessary modules from clap for command-line argument parsing
-use serde::{Deserialize, Serialize}; // Import Serde to serialize and deserialize task data to/from JSON
-use std::collections::HashMap; // Import HashMap to store tasks in memory
-use std::fs::File; // For file operations such as opening and writing files
-use std::io::{self, Read, Write}; // For reading from and writing to files
-
-use aes::Aes256; // AES-256 encryption
-use block_modes::block_padding::Pkcs7; // Use PKCS7 padding for block cipher
-use block_modes::{BlockMode, Cbc}; // Import block modes, specifically CBC mode
-
-use hmac::Hmac; // HMAC for PBKDF2
+use aes::Aes256;
+use block_modes::block_padding::Pkcs7;
+use block_modes::{BlockMode, Cbc};
+use clap::{Arg, Command};
+use hmac::Hmac;
 use itertools::Itertools;
-use pbkdf2::pbkdf2; // For PBKDF2 key derivation
-use rpassword::read_password; // For securely reading the passphrase
+use pbkdf2::pbkdf2;
+use rand::Rng; // For generating random values
+use rpassword::read_password;
+use serde::{Deserialize, Serialize};
+use sha2::Sha256;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::num::NonZeroU32;
 
-use sha2::Sha256; // SHA-256 for HMAC
-
-use std::num::NonZeroU32; // To handle iteration count // Import Itertools for the `.sorted_by` met in PBKDF2
-
-// Define encryption and decryption types using AES-256-CBC
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
-#[derive(Serialize, Deserialize, Debug)] // Derive Serde traits for Task struct to enable serialization/deserialization
+#[derive(Serialize, Deserialize, Debug)]
 struct Task {
-    name: String,        // Name of the task
-    description: String, // Description of the task
-    priority: String,    // Priority of the task (e.g., "High", "Medium", "Low")
-    completed: bool,     // Status of the task: true if completed, false otherwise
+    name: String,
+    description: String,
+    priority: String,
+    completed: bool,
 }
 
-const STORAGE_FILE: &str = "tasks.json"; // Define the path to the file where tasks are stored
+const STORAGE_FILE: &str = "tasks.json";
+
+// Function to generate a random salt for PBKDF2
+fn generate_random_salt() -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..16).map(|_| rng.gen()).collect() // Generate 16 bytes of random data
+}
 
 // Function to derive a 32-byte key from the passphrase using PBKDF2
-fn derive_key_from_passphrase(passphrase: &str) -> Vec<u8> {
-    let mut key = vec![0u8; 32]; // Create a vector of 32 bytes for the key
-    let salt = b"some_unique_salt"; // Ideally, this should be unique per user or session
-
-    let iterations = NonZeroU32::new(100_000).unwrap(); // Set the iteration count for PBKDF2
+fn derive_key_from_passphrase(passphrase: &str, salt: &[u8]) -> Vec<u8> {
+    let mut key = vec![0u8; 32];
+    let iterations = NonZeroU32::new(100_000).unwrap();
 
     pbkdf2::<Hmac<Sha256>>(
         passphrase.as_bytes(),
         salt,
         iterations.get().into(),
         &mut key,
-    ); // Derive the key
+    );
 
-    key // Return the 32-byte derived key
+    key
+}
+
+// Function to generate a random IV (16 bytes for AES-256-CBC)
+fn generate_random_iv() -> Vec<u8> {
+    let mut rng = rand::thread_rng();
+    (0..16).map(|_| rng.gen()).collect() // Generate 16 bytes of random data for IV
 }
 
 // Function to encrypt data using AES-256-CBC
 fn encrypt_data(data: &str, encryption_key: &[u8], iv: &[u8]) -> Vec<u8> {
-    let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap(); // Initialize AES-256-CBC cipher
-    cipher.encrypt_vec(data.as_bytes()) // Encrypt the input data and return the ciphertext
+    let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap();
+    cipher.encrypt_vec(data.as_bytes())
 }
 
 // Function to decrypt data using AES-256-CBC
 fn decrypt_data(encrypted_data: &[u8], encryption_key: &[u8], iv: &[u8]) -> Result<String, String> {
-    let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap(); // Initialize AES-256-CBC cipher
+    let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap();
     match cipher.decrypt_vec(encrypted_data) {
         Ok(decrypted_data) => match String::from_utf8(decrypted_data) {
             Ok(decoded_str) => Ok(decoded_str),
-            Err(_) => Err("Decrypted data is not valid UTF-8".to_string()), // Handle invalid UTF-8 data
+            Err(_) => Err("Decrypted data is not valid UTF-8".to_string()),
         },
-        Err(_) => Err("Decryption failed".to_string()), // Handle decryption failure
+        Err(_) => Err("Decryption failed".to_string()),
     }
 }
 
 // Function to load tasks from an encrypted file
-fn load_tasks_from_file(encryption_key: &[u8]) -> HashMap<String, Task> {
-    let mut tasks = HashMap::new(); // Create an empty HashMap to store tasks
-    if let Ok(mut file) = File::open(STORAGE_FILE) {
-        // Attempt to open the encrypted file
-        let mut encrypted_data = Vec::new(); // Create a buffer for the encrypted data
-        if file.read_to_end(&mut encrypted_data).is_ok() {
-            // Read the file content into the buffer
-            match decrypt_data(&encrypted_data, encryption_key, &vec![0u8; 16]) {
-                Ok(decrypted_data) => {
-                    if let Ok(parsed) = serde_json::from_str(&decrypted_data) {
-                        tasks = parsed; // If successful, assign the parsed HashMap to `tasks`
+fn load_tasks_from_file(passphrase: &str) -> HashMap<String, Task> {
+    let mut tasks = HashMap::new();
+
+    // Attempt to open the file for reading
+    match File::open(STORAGE_FILE) {
+        Ok(mut file) => {
+            let mut file_data = Vec::new();
+
+            // Attempt to read all the file data
+            if let Err(e) = file.read_to_end(&mut file_data) {
+                println!("Error reading from file: {}", e);
+                return tasks; // Return empty tasks on error
+            }
+
+            if file_data.len() >= 16 + 16 {
+                // Ensure we have salt and IV
+                let salt = file_data[..16].to_vec(); // Extract the salt
+                let iv = file_data[16..32].to_vec(); // Extract the IV
+                let encrypted_data = &file_data[32..]; // The rest is the encrypted data
+
+                // Derive the encryption key from the passphrase and salt
+                let encryption_key = derive_key_from_passphrase(passphrase, &salt);
+
+                match decrypt_data(encrypted_data, &encryption_key, &iv) {
+                    Ok(decrypted_data) => {
+                        // Try to deserialize the decrypted data into a HashMap
+                        if let Ok(parsed) = serde_json::from_str(&decrypted_data) {
+                            tasks = parsed;
+                        } else {
+                            println!("Error deserializing task data.");
+                        }
+                    }
+                    Err(e) => {
+                        println!("Error decrypting data: {}", e);
                     }
                 }
-                Err(err) => {
-                    println!("Error decrypting data: {}", err); // Handle decryption error
-                }
+            } else {
+                println!("Invalid file format: File does not contain enough data.");
             }
         }
+        Err(e) => {
+            println!("Error opening file: {}", e);
+        }
     }
-    tasks // Return the loaded tasks (could be empty if the file couldn't be read or decrypted)
+
+    tasks
 }
 
 // Function to save tasks to an encrypted file
-fn save_tasks_to_file(tasks: &HashMap<String, Task>, encryption_key: &[u8]) -> io::Result<()> {
-    let data = serde_json::to_string_pretty(tasks).unwrap(); // Serialize the tasks to a pretty JSON format
-    let encrypted_data = encrypt_data(&data, encryption_key, &vec![0u8; 16]); // Encrypt the serialized JSON string
-    let mut file = File::create(STORAGE_FILE)?; // Create or overwrite the file for writing
-    file.write_all(&encrypted_data) // Write the encrypted data to the file
+fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Result<()> {
+    let data = serde_json::to_string_pretty(tasks).unwrap();
+    let iv = generate_random_iv(); // Generate random IV for encryption
+    let salt = generate_random_salt(); // Generate a new salt for each file
+
+    // Derive the encryption key from the passphrase and salt
+    let encryption_key = derive_key_from_passphrase(passphrase, &salt);
+
+    // Encrypt the task data
+    let encrypted_data = encrypt_data(&data, &encryption_key, &iv);
+
+    // Prepend the salt and IV to the encrypted data before saving
+    let mut file_data = Vec::new();
+    file_data.extend_from_slice(&salt); // Save the salt
+    file_data.extend_from_slice(&iv); // Save the IV
+    file_data.extend_from_slice(&encrypted_data); // Save the encrypted data
+
+    // Attempt to open the file for writing
+    match File::create(STORAGE_FILE) {
+        Ok(mut file) => {
+            // Attempt to write the data to the file
+            if let Err(e) = file.write_all(&file_data) {
+                println!("Error writing to file: {}", e);
+            } else {
+                println!("Tasks successfully saved to file.");
+            }
+        }
+        Err(e) => {
+            println!("Error creating file: {}", e);
+        }
+    }
+
+    Ok(())
 }
 
-// Main function to handle command-line arguments and task operations
 fn main() {
-    // Get the passphrase securely from the user
     println!("Please enter your passphrase:");
-    let passphrase = read_password().unwrap(); // Securely read the passphrase
+    let passphrase = read_password().unwrap();
 
-    // Derive the 32-byte key from the passphrase
-    let encryption_key = derive_key_from_passphrase(&passphrase);
+    let mut tasks: HashMap<String, Task> = load_tasks_from_file(&passphrase);
 
-    let mut tasks: HashMap<String, Task> = load_tasks_from_file(&encryption_key); // Load tasks from the encrypted file into a HashMap
-
-    // Define the command-line interface using clap
-    let matches = Command::new("one-do-three") // Create a new Clap command with the name "one-do-three"
-        .about("A simple task management CLI") // Set the description for the command-line tool
+    let matches = Command::new("one-do-three")
+        .about("A simple task management CLI")
         .subcommand(
             Command::new("add")
-                .about("Add a new task") // Description for the "add" subcommand
-                .arg(Arg::new("name").help("The name of the task").required(true)) // Define the "name" argument (required)
+                .about("Add a new task")
+                .arg(Arg::new("name").help("The name of the task").required(true))
                 .arg(
                     Arg::new("description")
                         .help("The task description")
                         .required(true),
-                ) // Define the "description" argument (required)
+                )
                 .arg(
                     Arg::new("priority")
                         .help("The priority of the task")
                         .required(true),
-                ), // Define the "priority" argument (required)
+                ),
         )
         .subcommand(
             Command::new("list")
-                .about("List all tasks") // Description for the "list" subcommand
+                .about("List all tasks")
                 .arg(
                     Arg::new("filter")
-                        .long("filter") // Define a filter argument to filter tasks
+                        .long("filter")
                         .help("Filter tasks by priority or completion status")
                         .value_name("FILTER"),
                 )
                 .arg(
                     Arg::new("sort")
-                        .long("sort") // Define a sort argument to sort tasks
+                        .long("sort")
                         .help("Sort tasks by priority, completion status, or name")
                         .value_name("SORT"),
                 ),
         )
         .subcommand(
             Command::new("edit")
-                .about("Edit an existing task") // Description for the "edit" subcommand
+                .about("Edit an existing task")
                 .arg(
                     Arg::new("name")
-                        .help("The name of the task to edit") // Define the "name" argument (required)
+                        .help("The name of the task to edit")
                         .required(true),
                 )
                 .arg(
                     Arg::new("description")
-                        .help("The new description of the task") // Define the "description" argument
+                        .help("The new description of the task")
                         .long("description")
                         .value_parser(clap::value_parser!(String)),
                 )
                 .arg(
                     Arg::new("priority")
-                        .help("The new priority of the task") // Define the "priority" argument
+                        .help("The new priority of the task")
                         .long("priority")
                         .value_parser(clap::value_parser!(String)),
                 )
                 .arg(
                     Arg::new("completed")
-                        .help("Set the task as completed (true/false)") // Define the "completed" argument
+                        .help("Set the task as completed (true/false)")
                         .long("completed")
                         .value_parser(clap::value_parser!(String)),
                 ),
         )
         .subcommand(
-            Command::new("delete")
-                .about("Delete an existing task") // Description for the "delete" subcommand
-                .arg(
-                    Arg::new("name")
-                        .help("The name of the task to delete") // Define the "name" argument (required)
-                        .required(true),
-                ),
+            Command::new("delete").about("Delete an existing task").arg(
+                Arg::new("name")
+                    .help("The name of the task to delete")
+                    .required(true),
+            ),
         )
-        .get_matches(); // Parse the command-line arguments
+        .get_matches();
 
     // Handle the "add" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("add") {
-        let name = sub_matches.get_one::<String>("name").unwrap(); // Get the task name
-        let description = sub_matches.get_one::<String>("description").unwrap(); // Get the task description
-        let priority = sub_matches.get_one::<String>("priority").unwrap(); // Get the task priority
+        let name = sub_matches.get_one::<String>("name").unwrap();
+        let description = sub_matches.get_one::<String>("description").unwrap();
+        let priority = sub_matches.get_one::<String>("priority").unwrap();
 
         let new_task = Task {
             name: name.to_string(),
             description: description.to_string(),
             priority: priority.to_string(),
-            completed: false, // New tasks are incomplete by default
+            completed: false,
         };
 
-        tasks.insert(name.clone(), new_task); // Add the new task to the HashMap
-        save_tasks_to_file(&tasks, &encryption_key).expect("Failed to save tasks to file"); // Save tasks to the encrypted file
-        println!("Task added: {}", name); // Confirmation message
+        tasks.insert(name.clone(), new_task);
+        save_tasks_to_file(&tasks, &passphrase).expect("Failed to save tasks to file");
+        println!("Task added: {}", name);
     }
 
     // Handle the "list" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("list") {
         if tasks.is_empty() {
-            println!("No tasks available."); // If there are no tasks, notify the user
+            println!("No tasks available.");
             return;
         }
 
-        let filter = sub_matches.get_one::<String>("filter"); // Get the filter argument
-        let sort = sub_matches.get_one::<String>("sort"); // Get the sort argument
+        let filter = sub_matches.get_one::<String>("filter");
+        let sort = sub_matches.get_one::<String>("sort");
 
-        // Filter tasks if the "filter" argument is provided
         let filtered_tasks = tasks
             .iter()
             .filter(|(_, task)| {
@@ -215,15 +266,14 @@ fn main() {
                     match f.as_str() {
                         "completed" => task.completed,
                         "high" => task.priority == "High",
-                        _ => true, // Default to no filtering
+                        _ => true,
                     }
                 } else {
                     true
                 }
             })
-            .collect::<HashMap<_, _>>(); // Collect filtered tasks into a new HashMap
+            .collect::<HashMap<_, _>>();
 
-        // Sort tasks if the "sort" argument is provided
         let sorted_tasks = filtered_tasks
             .iter()
             .sorted_by(|a, b| {
@@ -234,12 +284,11 @@ fn main() {
                         _ => a.0.cmp(b.0),
                     }
                 } else {
-                    a.0.cmp(b.0) // Default to sorting by task name
+                    a.0.cmp(b.0)
                 }
             })
-            .collect::<Vec<_>>(); // Sort tasks and collect them in a vector
+            .collect::<Vec<_>>();
 
-        // Display sorted tasks
         for (name, task) in sorted_tasks {
             println!(
                 "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
@@ -250,35 +299,35 @@ fn main() {
 
     // Handle the "edit" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("edit") {
-        let name = sub_matches.get_one::<String>("name").unwrap(); // Get the task name to edit
+        let name = sub_matches.get_one::<String>("name").unwrap();
 
         if let Some(task) = tasks.get_mut(name) {
             if let Some(description) = sub_matches.get_one::<String>("description") {
-                task.description = description.clone(); // Update the task description
+                task.description = description.clone();
             }
             if let Some(priority) = sub_matches.get_one::<String>("priority") {
-                task.priority = priority.clone(); // Update the task priority
+                task.priority = priority.clone();
             }
             if let Some(completed) = sub_matches.get_one::<String>("completed") {
-                task.completed = completed == "true"; // Update the task completion status
+                task.completed = completed == "true";
             }
 
-            save_tasks_to_file(&tasks, &encryption_key).expect("Failed to save tasks to file"); // Save the updated tasks to the file
-            println!("Task updated: {}", name); // Confirmation message
+            save_tasks_to_file(&tasks, &passphrase).expect("Failed to save tasks to file");
+            println!("Task updated: {}", name);
         } else {
-            println!("Task not found: {}", name); // If task doesn't exist
+            println!("Task not found: {}", name);
         }
     }
 
     // Handle the "delete" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("delete") {
-        let name = sub_matches.get_one::<String>("name").unwrap(); // Get the task name to delete
+        let name = sub_matches.get_one::<String>("name").unwrap();
 
         if tasks.remove(name).is_some() {
-            save_tasks_to_file(&tasks, &encryption_key).expect("Failed to save tasks to file"); // Save the updated tasks to the file
-            println!("Task deleted: {}", name); // Confirmation message
+            save_tasks_to_file(&tasks, &passphrase).expect("Failed to save tasks to file");
+            println!("Task deleted: {}", name);
         } else {
-            println!("Task not found: {}", name); // If task doesn't exist
+            println!("Task not found: {}", name);
         }
     }
 }
