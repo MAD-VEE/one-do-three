@@ -286,6 +286,13 @@ fn main() {
 
     // Handle the "list" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("list") {
+        // Validate the passphrase before listing tasks
+        if !is_passphrase_correct(&passphrase) {
+            println!("Error: Incorrect passphrase. Unable to list tasks.");
+            println!("Please ensure you've entered the correct passphrase to access your tasks.");
+            return;
+        }
+
         if tasks.is_empty() {
             println!("No tasks available.");
             return;
