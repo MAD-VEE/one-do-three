@@ -174,7 +174,7 @@ fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Re
             if let Err(e) = file.write_all(&file_data) {
                 println!("Error writing to file: {}", e);
             } else {
-                println!("Tasks successfully saved to file.");
+                println!("Changes successfully saved to file.");
             }
         }
         Err(e) => {
