@@ -71,6 +71,35 @@ fn decrypt_data(encrypted_data: &[u8], encryption_key: &[u8], iv: &[u8]) -> Resu
     }
 }
 
+// Function to check if the passphrase is correct by attempting to load tasks
+fn is_passphrase_correct(passphrase: &str) -> bool {
+    match File::open(STORAGE_FILE) {
+        Ok(mut file) => {
+            let mut file_data = Vec::new();
+
+            if let Err(_) = file.read_to_end(&mut file_data) {
+                return false;
+            }
+
+            if file_data.len() >= 16 + 16 {
+                let salt = file_data[..16].to_vec(); // Extract the salt
+                let iv = file_data[16..32].to_vec(); // Extract the IV
+                let encrypted_data = &file_data[32..]; // The rest is the encrypted data
+
+                let encryption_key = derive_key_from_passphrase(passphrase, &salt);
+
+                match decrypt_data(encrypted_data, &encryption_key, &iv) {
+                    Ok(_) => true,
+                    Err(_) => false,
+                }
+            } else {
+                false
+            }
+        }
+        Err(_) => false,
+    }
+}
+
 // Function to load tasks from an encrypted file
 fn load_tasks_from_file(passphrase: &str) -> HashMap<String, Task> {
     let mut tasks = HashMap::new();
@@ -236,6 +265,12 @@ fn main() {
         let name = sub_matches.get_one::<String>("name").unwrap();
         let description = sub_matches.get_one::<String>("description").unwrap();
         let priority = sub_matches.get_one::<String>("priority").unwrap();
+
+        // Validate the passphrase before adding a task
+        if !is_passphrase_correct(&passphrase) {
+            println!("Incorrect passphrase. Task not added.");
+            return;
+        }
 
         let new_task = Task {
             name: name.to_string(),
