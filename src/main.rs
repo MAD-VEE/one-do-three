@@ -363,6 +363,13 @@ fn main() {
 
     // Handle the "delete" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("delete") {
+        // Validate the passphrase before deleting a task
+        if !is_passphrase_correct(&passphrase) {
+            println!("Error: Incorrect passphrase. Unable to delete task.");
+            println!("Please ensure you've entered the correct passphrase to modify tasks.");
+            return;
+        }
+
         let name = sub_matches.get_one::<String>("name").unwrap();
 
         if tasks.remove(name).is_some() {
