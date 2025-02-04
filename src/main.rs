@@ -341,6 +341,13 @@ fn main() {
 
     // Handle the "edit" subcommand
     if let Some(sub_matches) = matches.subcommand_matches("edit") {
+        // Validate the passphrase before any task operations
+        if !is_passphrase_correct(&passphrase) {
+            println!("Error: Incorrect passphrase. Unable to edit task.");
+            println!("Please ensure you've entered the correct passphrase to modify tasks.");
+            return;
+        }
+
         let name = sub_matches.get_one::<String>("name").unwrap();
 
         if let Some(task) = tasks.get_mut(name) {
