@@ -4,6 +4,7 @@ use block_modes::{BlockMode, Cbc};
 use clap::{Arg, Command};
 use hmac::Hmac;
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use pbkdf2::pbkdf2;
 use rand::Rng; // For generating random values
 use rpassword::read_password;
@@ -13,6 +14,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
@@ -22,6 +25,35 @@ struct Task {
     description: String,
     priority: String,
     completed: bool,
+}
+
+struct PasswordCache {
+    password: String,
+    timestamp: u64,
+}
+
+impl PasswordCache {
+    fn new(password: String) -> Self {
+        PasswordCache {
+            password,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        current_time - self.timestamp < 900 // 15 minutes = 900 seconds
+    }
+}
+
+lazy_static! {
+    static ref PASSWORD_CACHE: Arc<Mutex<Option<PasswordCache>>> = Arc::new(Mutex::new(None));
 }
 
 const STORAGE_FILE: &str = "tasks.json";
@@ -185,9 +217,30 @@ fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Re
     Ok(())
 }
 
-fn main() {
+fn get_password() -> String {
+    // Check if we have a valid cached password
+    if let Ok(cache) = PASSWORD_CACHE.lock() {
+        if let Some(cached) = &*cache {
+            if cached.is_valid() {
+                return cached.password.clone();
+            }
+        }
+    }
+
+    // If no valid cached password, prompt for new password
     println!("Please enter your passphrase:");
-    let passphrase = read_password().unwrap();
+    let password = read_password().unwrap();
+
+    // Cache the new password
+    if let Ok(mut cache) = PASSWORD_CACHE.lock() {
+        *cache = Some(PasswordCache::new(password.clone()));
+    }
+
+    password
+}
+
+fn main() {
+    let passphrase = get_password();
 
     let mut tasks: HashMap<String, Task> = load_tasks_from_file(&passphrase);
 
