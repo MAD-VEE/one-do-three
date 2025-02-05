@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+use std::sync::Mutex;
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
@@ -27,33 +27,26 @@ struct Task {
     completed: bool,
 }
 
+lazy_static! {
+    static ref PASSWORD_CACHE: Mutex<Option<PasswordCache>> = Mutex::new(None);
+}
+
 struct PasswordCache {
     password: String,
-    timestamp: u64,
+    timestamp: Instant,
 }
 
 impl PasswordCache {
     fn new(password: String) -> Self {
         PasswordCache {
             password,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp: Instant::now(),
         }
     }
 
     fn is_valid(&self) -> bool {
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        current_time - self.timestamp < 900 // 15 minutes = 900 seconds
+        self.timestamp.elapsed() < Duration::from_secs(15 * 60)
     }
-}
-
-lazy_static! {
-    static ref PASSWORD_CACHE: Arc<Mutex<Option<PasswordCache>>> = Arc::new(Mutex::new(None));
 }
 
 const STORAGE_FILE: &str = "tasks.json";
@@ -220,11 +213,18 @@ fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Re
 fn get_password() -> String {
     // Check if we have a valid cached password
     if let Ok(cache) = PASSWORD_CACHE.lock() {
-        if let Some(cached) = &*cache {
+        if let Some(ref cached) = *cache {
             if cached.is_valid() {
+                println!("Using cached password.");
                 return cached.password.clone();
+            } else {
+                println!("Cached password expired.");
             }
+        } else {
+            println!("No cached password found.");
         }
+    } else {
+        println!("Failed to lock PASSWORD_CACHE.");
     }
 
     // If no valid cached password, prompt for new password
@@ -234,6 +234,9 @@ fn get_password() -> String {
     // Cache the new password
     if let Ok(mut cache) = PASSWORD_CACHE.lock() {
         *cache = Some(PasswordCache::new(password.clone()));
+        println!("Password cached.");
+    } else {
+        println!("Failed to lock PASSWORD_CACHE for writing.");
     }
 
     password
