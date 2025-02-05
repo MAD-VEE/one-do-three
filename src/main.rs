@@ -3,19 +3,22 @@ use block_modes::block_padding::Pkcs7;
 use block_modes::{BlockMode, Cbc};
 use clap::{Arg, Command};
 use hmac::Hmac;
+type HmacSha256 = Hmac<sha2::Sha256>;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use pbkdf2::pbkdf2;
 use rand::Rng; // For generating random values
 use rpassword::read_password;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
-use std::time::{Duration, Instant};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt; // For Unix-like systems
 use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tempfile::NamedTempFile;
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
@@ -30,17 +33,18 @@ struct Task {
 lazy_static! {
     static ref PASSWORD_CACHE: Mutex<Option<PasswordCache>> = Mutex::new(None);
 }
-
 struct PasswordCache {
     password: String,
     timestamp: Instant,
+    temp_file_path: String,
 }
 
 impl PasswordCache {
-    fn new(password: String) -> Self {
+    fn new(password: String, temp_file_path: String) -> Self {
         PasswordCache {
             password,
             timestamp: Instant::now(),
+            temp_file_path,
         }
     }
 
@@ -62,7 +66,7 @@ fn derive_key_from_passphrase(passphrase: &str, salt: &[u8]) -> Vec<u8> {
     let mut key = vec![0u8; 32];
     let iterations = NonZeroU32::new(100_000).unwrap();
 
-    pbkdf2::<Hmac<Sha256>>(
+    pbkdf2::<HmacSha256>(
         passphrase.as_bytes(),
         salt,
         iterations.get().into(),
@@ -75,7 +79,7 @@ fn derive_key_from_passphrase(passphrase: &str, salt: &[u8]) -> Vec<u8> {
 // Function to generate a random IV (16 bytes for AES-256-CBC)
 fn generate_random_iv() -> Vec<u8> {
     let mut rng = rand::thread_rng();
-    (0..16).map(|_| rng.gen()).collect() // Generate 16 bytes of random data for IV
+    (0..16).map(|_| rng.gen()).collect() // Generate 16 bytes of random data
 }
 
 // Function to encrypt data using AES-256-CBC
@@ -219,25 +223,72 @@ fn get_password() -> String {
                 return cached.password.clone();
             } else {
                 println!("Cached password expired.");
+                // Delete the temporary file
+                let _ = fs::remove_file(&cached.temp_file_path);
             }
-        } else {
-            println!("No cached password found.");
         }
     } else {
         println!("Failed to lock PASSWORD_CACHE.");
+    }
+
+    // If no valid cached password, check if a temporary file exists
+    if let Ok(mut temp_file) = File::open("password_cache.tmp") {
+        let mut password = String::new();
+        if temp_file.read_to_string(&mut password).is_ok() {
+            let timestamp = fs::metadata("password_cache.tmp")
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(SystemTime::now())
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::new(0, 0))
+                .as_secs();
+
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            if current_time - timestamp < 15 * 60 {
+                println!("Using password from temporary file.");
+                return password;
+            } else {
+                println!("Temporary file password expired.");
+                let _ = fs::remove_file("password_cache.tmp");
+            }
+        }
+    } else {
+        println!("No cached password found.");
     }
 
     // If no valid cached password, prompt for new password
     println!("Please enter your passphrase:");
     let password = read_password().unwrap();
 
+    // Create a temporary file to store the password
+    let mut temp_file = NamedTempFile::new().expect("Failed to create temporary file");
+    let temp_file_path = temp_file.path().to_str().unwrap().to_string();
+    temp_file
+        .write_all(password.as_bytes())
+        .expect("Failed to write to temporary file");
+
+    // Set restricted permissions for the temporary file (Unix-like systems)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::Permissions::from_mode(0o600); // Owner read/write only
+        fs::set_permissions(temp_file.path(), permissions).expect("Failed to set permissions");
+    }
+
     // Cache the new password
     if let Ok(mut cache) = PASSWORD_CACHE.lock() {
-        *cache = Some(PasswordCache::new(password.clone()));
+        *cache = Some(PasswordCache::new(password.clone(), temp_file_path.clone()));
         println!("Password cached.");
     } else {
         println!("Failed to lock PASSWORD_CACHE for writing.");
     }
+
+    // Persist the temporary file
+    temp_file
+        .persist("password_cache.tmp")
+        .expect("Failed to persist temporary file");
 
     password
 }
