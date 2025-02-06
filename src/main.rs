@@ -19,7 +19,20 @@ use std::os::unix::fs::PermissionsExt; // For Unix-like systems
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
-use winapi::um::winnt::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM};
+
+use std::ffi::CString;
+use std::ptr::null_mut;
+use winapi::um::accctrl::{EXPLICIT_ACCESS_A, TRUSTEE_A};
+use winapi::um::accctrl::{NO_INHERITANCE, SET_ACCESS};
+use winapi::um::accctrl::{SE_FILE_OBJECT, TRUSTEE_IS_NAME, TRUSTEE_IS_USER};
+use winapi::um::aclapi::SetNamedSecurityInfoA;
+use winapi::um::fileapi::SetFileAttributesA;
+use winapi::um::winbase::LocalFree;
+use winapi::um::winnt::PACL;
+use winapi::um::winnt::{
+    DACL_SECURITY_INFORMATION, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM, GENERIC_READ,
+    GENERIC_WRITE,
+};
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
@@ -282,12 +295,39 @@ fn get_password() -> String {
     // Set hidden and system attributes for the temporary file (Windows)
     #[cfg(windows)]
     {
-        use std::ffi::CString;
-        use winapi::um::fileapi::SetFileAttributesA;
-
         let path = CString::new(temp_file.path().to_str().unwrap()).unwrap();
         unsafe {
+            // Set file attributes to hidden and system
             SetFileAttributesA(path.as_ptr(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+
+            // Set file permissions to restrict access
+            let mut ea: EXPLICIT_ACCESS_A = std::mem::zeroed();
+            let trustee = CString::new("CURRENT_USER").unwrap();
+            ea.grfAccessPermissions = GENERIC_READ | GENERIC_WRITE;
+            ea.grfAccessMode = SET_ACCESS;
+            ea.grfInheritance = NO_INHERITANCE;
+            ea.Trustee.TrusteeForm = TRUSTEE_IS_NAME;
+            ea.Trustee.TrusteeType = TRUSTEE_IS_USER;
+            ea.Trustee.ptstrName = trustee.as_ptr() as *mut i8;
+
+            let mut acl: PACL = null_mut();
+            let result = SetNamedSecurityInfoA(
+                path.as_ptr() as *mut i8,
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                acl,
+                null_mut(),
+            );
+
+            if result != 0 {
+                println!("Failed to set file permissions.");
+            }
+
+            if !acl.is_null() {
+                LocalFree(acl as *mut _);
+            }
         }
     }
 

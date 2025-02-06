@@ -20,4 +20,4 @@ itertools = "0.10"
 lazy_static = "1.4.0"
 ring = "0.16.20"
 tempfile = "3.2"
-winapi = { version = "0.3", features = ["winnt"] }
+winapi = { version = "0.3", features = ["fileapi", "winnt", "winbase", "accctrl", "aclapi"] }
