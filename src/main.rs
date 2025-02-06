@@ -20,12 +20,12 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
 
-use std::ffi::CString;
+use std::ffi::{CString, c_void};
 use std::ptr::null_mut;
-use winapi::um::accctrl::{EXPLICIT_ACCESS_A, TRUSTEE_A};
+use winapi::um::accctrl::EXPLICIT_ACCESS_A;
 use winapi::um::accctrl::{NO_INHERITANCE, SET_ACCESS};
 use winapi::um::accctrl::{SE_FILE_OBJECT, TRUSTEE_IS_NAME, TRUSTEE_IS_USER};
-use winapi::um::aclapi::SetNamedSecurityInfoA;
+use winapi::um::aclapi::SetSecurityInfo;
 use winapi::um::fileapi::SetFileAttributesA;
 use winapi::um::winbase::LocalFree;
 use winapi::um::winnt::PACL;
@@ -310,9 +310,9 @@ fn get_password() -> String {
             ea.Trustee.TrusteeType = TRUSTEE_IS_USER;
             ea.Trustee.ptstrName = trustee.as_ptr() as *mut i8;
 
-            let mut acl: PACL = null_mut();
-            let result = SetNamedSecurityInfoA(
-                path.as_ptr() as *mut i8,
+            let acl: PACL = null_mut();
+            let result = SetSecurityInfo(
+                path.as_ptr() as *mut c_void,
                 SE_FILE_OBJECT,
                 DACL_SECURITY_INFORMATION,
                 null_mut(),
