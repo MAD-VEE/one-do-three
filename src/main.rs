@@ -19,6 +19,7 @@ use std::os::unix::fs::PermissionsExt; // For Unix-like systems
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
+use winapi::um::winnt::{FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM};
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
@@ -226,6 +227,8 @@ fn get_password() -> String {
                 // Delete the temporary file
                 let _ = fs::remove_file(&cached.temp_file_path);
             }
+        } else {
+            println!("No cached password found.");
         }
     } else {
         println!("Failed to lock PASSWORD_CACHE.");
@@ -272,9 +275,20 @@ fn get_password() -> String {
     // Set restricted permissions for the temporary file (Unix-like systems)
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
         let permissions = fs::Permissions::from_mode(0o600); // Owner read/write only
         fs::set_permissions(temp_file.path(), permissions).expect("Failed to set permissions");
+    }
+
+    // Set hidden and system attributes for the temporary file (Windows)
+    #[cfg(windows)]
+    {
+        use std::ffi::CString;
+        use winapi::um::fileapi::SetFileAttributesA;
+
+        let path = CString::new(temp_file.path().to_str().unwrap()).unwrap();
+        unsafe {
+            SetFileAttributesA(path.as_ptr(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM);
+        }
     }
 
     // Cache the new password
