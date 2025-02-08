@@ -349,10 +349,21 @@ fn main() {
                     .required(true),
             ),
         )
+        .subcommand(Command::new("logout").about("Logout and clear cached password"))
         .get_matches();
 
     // Handle different subcommands
     match matches.subcommand() {
+        Some(("logout", _)) => {
+            // Handle logout command
+            let cache = SecurePasswordCache::new();
+            if let Err(e) = cache.clear_cache() {
+                println!("Warning: Failed to clear password cache: {}", e);
+            } else {
+                println!("Successfully logged out. Password cache cleared.");
+            }
+            process::exit(0);
+        }
         Some(("add", sub_matches)) => {
             // Handle add command
             let name = sub_matches.get_one::<String>("name").unwrap();
