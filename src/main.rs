@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
+use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Type aliases for better readability
@@ -231,6 +232,7 @@ fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Re
 }
 
 // The get_password function needs to be modified to verify passwords before caching
+// The get_password function with cancel option
 fn get_password() -> String {
     // Try to get cached password from keyring
     let cache = SecurePasswordCache::new();
@@ -240,9 +242,16 @@ fn get_password() -> String {
     }
 
     // If no valid cached password, prompt for new one
+    let mut attempts = 0;
     loop {
-        println!("Please enter your passphrase:");
+        attempts += 1;
+        println!("\nPlease enter your passphrase (or type 'exit' to quit):");
         let password = read_password().unwrap();
+
+        if password.trim().to_lowercase() == "exit" {
+            println!("Operation cancelled by user.");
+            process::exit(0);
+        }
 
         // Only cache and return the password if it's correct
         if is_passphrase_correct(&password) {
@@ -253,7 +262,15 @@ fn get_password() -> String {
             return password;
         }
 
-        println!("Incorrect passphrase. Please try again.");
+        println!("Incorrect passphrase.");
+        if attempts >= 3 {
+            println!("Multiple incorrect attempts. You can:");
+            println!("- Try again by pressing ENTER");
+            println!("- Type 'exit' to quit the program");
+            read_password().unwrap(); // Wait for user input
+        } else {
+            println!("Please try again or type 'exit' to quit.");
+        }
     }
 }
 
