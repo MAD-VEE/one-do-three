@@ -237,8 +237,11 @@ fn get_password() -> String {
     // Try to get cached password from keyring
     let cache = SecurePasswordCache::new();
     if let Ok(Some(password)) = cache.get_cached_password() {
-        println!("Using cached password (type 'logout' for a new session).");
-        return password;
+        // Only show cached password message if we're actually using it
+        if !password.trim().to_lowercase().eq("logout") {
+            println!("Using cached password (type 'logout' for a new session).");
+            return password;
+        }
     }
 
     // If no valid cached password, prompt for new one
@@ -247,7 +250,7 @@ fn get_password() -> String {
         if attempts == 0 {
             println!("\nPlease enter your passphrase (type 'exit' to quit):");
         }
-        
+
         attempts += 1;
         let password = read_password().unwrap();
 
@@ -260,7 +263,7 @@ fn get_password() -> String {
                 if let Err(e) = cache.clear_cache() {
                     println!("Warning: Failed to clear password cache: {}", e);
                 } else {
-                    println!("Password cache cleared. Please enter your passphrase:");
+                    println!("Successfully logged out. Password cache cleared.");
                     attempts = 0;
                     continue;
                 }
@@ -274,14 +277,14 @@ fn get_password() -> String {
                     }
                     return password.to_string();
                 }
-                
+
                 if attempts >= 3 {
                     println!("Incorrect passphrase. Multiple failed attempts.");
-                    println!("Press ENTER to try again, type 'exit' to quit.");
+                    println!("Press ENTER to try again, type 'exit' to quit, or 'logout' to clear cache.");
                     read_password().unwrap(); // Wait for user input
-                    attempts = 0;  // Reset attempts after user acknowledgment
+                    attempts = 0; // Reset attempts after user acknowledgment
                 } else {
-                    println!("Incorrect passphrase. Please try again.");
+                    println!("Incorrect passphrase. Pleasee try again.");
                 }
             }
         }
