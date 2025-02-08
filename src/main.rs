@@ -230,7 +230,7 @@ fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Re
     Ok(())
 }
 
-// Function to get password with secure caching
+// The get_password function needs to be modified to verify passwords before caching
 fn get_password() -> String {
     // Try to get cached password from keyring
     let cache = SecurePasswordCache::new();
@@ -240,15 +240,21 @@ fn get_password() -> String {
     }
 
     // If no valid cached password, prompt for new one
-    println!("Please enter your passphrase:");
-    let password = read_password().unwrap();
+    loop {
+        println!("Please enter your passphrase:");
+        let password = read_password().unwrap();
 
-    // Store in keyring
-    if let Err(e) = cache.cache_password(&password) {
-        println!("Warning: Failed to cache password: {}", e);
+        // Only cache and return the password if it's correct
+        if is_passphrase_correct(&password) {
+            // Store in keyring
+            if let Err(e) = cache.cache_password(&password) {
+                println!("Warning: Failed to cache password: {}", e);
+            }
+            return password;
+        }
+
+        println!("Incorrect passphrase. Please try again.");
     }
-
-    password
 }
 
 fn main() {
