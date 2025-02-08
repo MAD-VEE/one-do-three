@@ -237,39 +237,53 @@ fn get_password() -> String {
     // Try to get cached password from keyring
     let cache = SecurePasswordCache::new();
     if let Ok(Some(password)) = cache.get_cached_password() {
-        println!("Using cached password.");
+        println!("Using cached password (type 'logout' for a new session).");
         return password;
     }
 
     // If no valid cached password, prompt for new one
     let mut attempts = 0;
     loop {
+        if attempts == 0 {
+            println!("\nPlease enter your passphrase (type 'exit' to quit):");
+        }
+        
         attempts += 1;
-        println!("\nPlease enter your passphrase (or type 'exit' to quit):");
         let password = read_password().unwrap();
 
-        if password.trim().to_lowercase() == "exit" {
-            println!("Operation cancelled by user.");
-            process::exit(0);
-        }
-
-        // Only cache and return the password if it's correct
-        if is_passphrase_correct(&password) {
-            // Store in keyring
-            if let Err(e) = cache.cache_password(&password) {
-                println!("Warning: Failed to cache password: {}", e);
+        match password.trim().to_lowercase().as_str() {
+            "exit" => {
+                println!("Operation cancelled by user.");
+                process::exit(0);
             }
-            return password;
-        }
-
-        println!("Incorrect passphrase.");
-        if attempts >= 3 {
-            println!("Multiple incorrect attempts. You can:");
-            println!("- Try again by pressing ENTER");
-            println!("- Type 'exit' to quit the program");
-            read_password().unwrap(); // Wait for user input
-        } else {
-            println!("Please try again or type 'exit' to quit.");
+            "logout" => {
+                if let Err(e) = cache.clear_cache() {
+                    println!("Warning: Failed to clear password cache: {}", e);
+                } else {
+                    println!("Password cache cleared. Please enter your passphrase:");
+                    attempts = 0;
+                    continue;
+                }
+            }
+            password => {
+                // Only cache and return the password if it's correct
+                if is_passphrase_correct(password) {
+                    // Store in keyring
+                    if let Err(e) = cache.cache_password(password) {
+                        println!("Warning: Failed to cache password: {}", e);
+                    }
+                    return password.to_string();
+                }
+                
+                if attempts >= 3 {
+                    println!("Incorrect passphrase. Multiple failed attempts.");
+                    println!("Press ENTER to try again, type 'exit' to quit.");
+                    read_password().unwrap(); // Wait for user input
+                    attempts = 0;  // Reset attempts after user acknowledgment
+                } else {
+                    println!("Incorrect passphrase. Please try again.");
+                }
+            }
         }
     }
 }
