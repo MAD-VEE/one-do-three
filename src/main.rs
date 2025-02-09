@@ -24,6 +24,9 @@ type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 // Constant for the tasks storage file
 const STORAGE_FILE: &str = "tasks.json";
 
+// Add new constant for user storage
+const USERS_FILE: &str = "users.json";
+
 // Structure representing a single task
 #[derive(Serialize, Deserialize, Debug)]
 struct Task {
@@ -38,6 +41,27 @@ struct Task {
 struct CachedPassword {
     password: String,
     timestamp: u64,
+}
+
+// Represents a single user with their authentication details and task file location
+#[derive(Serialize, Deserialize, Debug)]
+struct User {
+    username: String,
+    email: String,
+    password_hash: String,
+    created_at: u64,
+    last_login: u64,
+    failed_attempts: u32,
+    last_failed_attempt: u64,
+    tasks_file: String, // Each user gets their own encrypted tasks file
+}
+
+// Container for all users with encryption metadata for secure storage
+#[derive(Serialize, Deserialize)]
+struct UserStore {
+    users: HashMap<String, User>,
+    salt: Vec<u8>,
+    iv: Vec<u8>,
 }
 
 // Secure password cache implementation using system keyring
