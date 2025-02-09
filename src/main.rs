@@ -367,6 +367,25 @@ fn create_user_store() -> UserStore {
     }
 }
 
+// Handler function for user creation process
+// Takes mutable reference to UserStore and owned strings for user details
+// Returns io::Result to propagate potential errors
+fn handle_user_creation(store: &mut UserStore, username: String, email: String, password: String) -> io::Result<()> {
+    // Attempt to add user to the store and handle the result
+    match store.add_user(username.clone(), email, password) {
+        Ok(_) => {
+            // If successful, print confirmation message
+            println!("User {} created successfully", username);
+            Ok(())
+        },
+        Err(e) => {
+            // If failed, print error message and propagate error
+            println!("Failed to create user: {}", e);
+            Err(e)
+        }
+    }
+}
+
 // Function to save UserStore to file
 fn save_user_store(store: &UserStore, master_key: &[u8]) -> io::Result<()> {
     let data = serde_json::to_string_pretty(store).unwrap();
