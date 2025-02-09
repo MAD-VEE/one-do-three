@@ -324,6 +324,20 @@ fn create_user_store() -> UserStore {
     }
 }
 
+// Function to save UserStore to file
+fn save_user_store(store: &UserStore, master_key: &[u8]) -> io::Result<()> {
+    let data = serde_json::to_string_pretty(store).unwrap();
+    let encrypted_data = encrypt_data(&data, master_key, &store.iv);
+
+    let mut file_data = Vec::new();
+    file_data.extend_from_slice(&store.salt);
+    file_data.extend_from_slice(&store.iv);
+    file_data.extend_from_slice(&encrypted_data);
+
+    File::create(USERS_FILE)?.write_all(&file_data)?;
+    Ok(())
+}
+
 fn main() {
     // Get password using secure caching mechanism
     let passphrase = get_password();
