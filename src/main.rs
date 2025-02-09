@@ -338,6 +338,33 @@ fn save_user_store(store: &UserStore, master_key: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+// Function to load UserStore from file
+fn load_user_store(master_key: &[u8]) -> io::Result<UserStore> {
+    match File::open(USERS_FILE) {
+        Ok(mut file) => {
+            let mut file_data = Vec::new();
+            file.read_to_end(&mut file_data)?;
+
+            if file_data.len() >= 32 {
+                let salt = file_data[..16].to_vec();
+                let iv = file_data[16..32].to_vec();
+                let encrypted_data = &file_data[32..];
+
+                match decrypt_data(encrypted_data, master_key, &iv) {
+                    Ok(decrypted_data) => match serde_json::from_str(&decrypted_data) {
+                        Ok(store) => Ok(store),
+                        Err(_) => Ok(create_user_store()),
+                    },
+                    Err(_) => Ok(create_user_store()),
+                }
+            } else {
+                Ok(create_user_store())
+            }
+        }
+        Err(_) => Ok(create_user_store()),
+    }
+}
+
 fn main() {
     // Get password using secure caching mechanism
     let passphrase = get_password();
