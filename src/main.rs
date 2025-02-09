@@ -69,6 +69,49 @@ struct SecurePasswordCache {
     keyring: Entry,
 }
 
+// Implementation block for UserStore to handle user management operations
+impl UserStore {
+    // Function to add a new user to the store
+    // Takes ownership of username, email and password strings
+    // Returns io::Result to handle potential errors
+    fn add_user(&mut self, username: String, email: String, password: String) -> io::Result<()> {
+        // Get current timestamp for user creation and last login times
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Hash the user's password using PBKDF2 with the store's salt
+        // Convert the resulting hash to hexadecimal string for storage
+        let password_hash = derive_key_from_passphrase(&password, &self.salt);
+        let password_hash = hex::encode(password_hash);
+
+        // Create new User struct with initial values
+        let user = User {
+            username: username.clone(), // Clone username as we need it for HashMap key
+            email,
+            password_hash,
+            created_at: current_time, // Set creation timestamp
+            last_login: current_time, // Initially same as creation time
+            failed_attempts: 0,       // Initialize login attempt counter
+            last_failed_attempt: 0,   // Initialize failed attempt timestamp
+            tasks_file: format!("tasks_{}.json", username), // Create unique task file name
+        };
+
+        // Insert the new user into the HashMap
+        // username is used as the key, user struct as the value
+        self.users.insert(username, user);
+        Ok(())
+    }
+
+    // Function to retrieve a user from the store
+    // Takes a reference to username and returns an Option containing a reference to the User
+    // Returns None if user doesn't exist
+    fn get_user(&self, username: &str) -> Option<&User> {
+        self.users.get(username)
+    }
+}
+
 impl SecurePasswordCache {
     // Create a new instance of SecurePasswordCache
     fn new() -> Self {

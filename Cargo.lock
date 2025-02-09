@@ -962,6 +962,7 @@ dependencies = [
  "aes 0.7.5",
  "block-modes",
  "clap",
+ "hex",
  "hmac",
  "itertools",
  "keyring",
