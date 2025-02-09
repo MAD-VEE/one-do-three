@@ -315,6 +315,15 @@ fn get_password() -> String {
     }
 }
 
+// Function to create a new UserStore
+fn create_user_store() -> UserStore {
+    UserStore {
+        users: HashMap::new(),
+        salt: generate_random_salt(),
+        iv: generate_random_iv(),
+    }
+}
+
 fn main() {
     // Get password using secure caching mechanism
     let passphrase = get_password();
