@@ -74,7 +74,12 @@ impl UserStore {
     // Function to add a new user to the store
     // Takes ownership of username, email and password strings
     // Returns io::Result to handle potential errors
-    pub fn add_user(&mut self, username: String, email: String, password: String) -> io::Result<()> {
+    pub fn add_user(
+        &mut self,
+        username: String,
+        email: String,
+        password: String,
+    ) -> io::Result<()> {
         // Get current timestamp for user creation and last login times
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -297,6 +302,47 @@ fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Re
     Ok(())
 }
 
+// This function handles failed login attempts and implements the 30-second delay
+fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
+    // Get current time since UNIX epoch
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Check if user has exceeded maximum attempts (3)
+    if user.failed_attempts >= 3 {
+        // Calculate time passed since last attempt
+        let time_since_last_attempt = current_time - user.last_failed_attempt;
+
+        // If less than 30 seconds have passed, prevent login attempt
+        if time_since_last_attempt < 30 {
+            println!(
+                "Too many failed attempts. Please wait {} seconds before trying again.",
+                30 - time_since_last_attempt
+            );
+            return false;
+        }
+
+        // Reset failed attempts counter after 30-second timeout
+        user.failed_attempts = 0;
+    }
+
+    // Increment failed attempts and update last attempt timestamp
+    user.failed_attempts += 1;
+    user.last_failed_attempt = current_time;
+
+    // Save the updated user store to persist the failed attempt count
+    if let Err(e) = save_user_store(
+        store,
+        &derive_key_from_passphrase("master_key", &store.salt),
+    ) {
+        println!("Warning: Failed to save user data: {}", e);
+    }
+
+    true
+}
+
 // The get_password function needs to be modified to verify passwords before caching
 // The get_password function with cancel option
 fn get_password() -> String {
@@ -369,14 +415,19 @@ fn create_user_store() -> UserStore {
 // Handler function for user creation process
 // Takes mutable reference to UserStore and owned strings for user details
 // Returns io::Result to propagate potential errors
-fn handle_user_creation(store: &mut UserStore, username: String, email: String, password: String) -> io::Result<()> {
+fn handle_user_creation(
+    store: &mut UserStore,
+    username: String,
+    email: String,
+    password: String,
+) -> io::Result<()> {
     // Attempt to add user to the store and handle the result
     match store.add_user(username.clone(), email, password) {
         Ok(_) => {
             // If successful, print confirmation message
             println!("User {} created successfully", username);
             Ok(())
-        },
+        }
         Err(e) => {
             // If failed, print error message and propagate error
             println!("Failed to create user: {}", e);
