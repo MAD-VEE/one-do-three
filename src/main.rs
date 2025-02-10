@@ -345,7 +345,7 @@ fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
     true
 }
 
-// Authentication form
+// Authentication function
 fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     let cache = SecurePasswordCache::new();
 
@@ -420,6 +420,13 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
             }
         }
     }
+}
+
+// Helper function to read a line from stdin
+fn read_line() -> io::Result<String> {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
 }
 
 // Function to create a new UserStore
