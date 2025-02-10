@@ -127,8 +127,9 @@ impl SecurePasswordCache {
     }
 
     // Cache a password in the system keyring
-    fn cache_password(&self, password: &str) -> io::Result<()> {
+    fn cache_password(&self, username: &str, password: &str) -> io::Result<()> {
         let cached = CachedPassword {
+            username: username.to_string(),
             password: password.to_string(),
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
