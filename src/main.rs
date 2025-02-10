@@ -345,60 +345,77 @@ fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
     true
 }
 
-// The get_password function needs to be modified to verify passwords before caching
-// The get_password function with cancel option
-fn get_password() -> String {
-    // Try to get cached password from keyring
+// Authentication form
+fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     let cache = SecurePasswordCache::new();
-    if let Ok(Some(password)) = cache.get_cached_password() {
-        // Only show cached password message if we're actually using it
-        if !password.trim().to_lowercase().eq("logout") {
-            println!("Using cached password (type 'logout' for a new session).");
-            return password;
+
+    // Try to get cached credentials
+    if let Ok(Some((cached_username, cached_password))) = cache.get_cached_password() {
+        // Check if the cached password is "logout"
+        if cached_password.trim().to_lowercase() == "logout" {
+            if let Err(e) = cache.clear_cache() {
+                println!("Warning: Failed to clear password cache: {}", e);
+            }
+            println!("Successfully logged out. Password cache cleared.");
+            return None;
+        }
+
+        // Verify cached credentials
+        if verify_user_credentials(&cached_username, &cached_password, store) {
+            println!("Using cached credentials (type 'logout' for a new session).");
+            return Some((cached_username, cached_password));
         }
     }
 
-    // If no valid cached password, prompt for new one
+    // If no valid cached credentials, prompt for login
     let mut attempts = 0;
     loop {
         if attempts == 0 {
-            println!("\nPlease enter your passphrase (type 'exit' to quit):");
+            println!("\nPlease enter your username (type 'exit' to quit):");
         }
 
-        attempts += 1;
-        let password = read_password().unwrap();
-
-        match password.trim().to_lowercase().as_str() {
+        let username = read_line().unwrap().trim().to_string();
+        match username.trim().to_lowercase().as_str() {
             "exit" => {
                 println!("Operation cancelled by user.");
                 process::exit(0);
             }
-            "logout" => {
-                if let Err(e) = cache.clear_cache() {
-                    println!("Warning: Failed to clear password cache: {}", e);
-                } else {
-                    println!("Successfully logged out. Password cache cleared.");
-                    attempts = 0;
-                    continue;
-                }
-            }
-            password => {
-                // Only cache and return the password if it's correct
-                if is_passphrase_correct(password) {
-                    // Store in keyring
-                    if let Err(e) = cache.cache_password(password) {
-                        println!("Warning: Failed to cache password: {}", e);
-                    }
-                    return password.to_string();
-                }
+            username => {
+                println!("Enter password:");
+                let password = read_password().unwrap();
 
-                if attempts >= 3 {
-                    println!("Incorrect passphrase. Multiple failed attempts.");
-                    println!("Press ENTER to try again, type 'exit' to quit, or 'logout' to clear cache.");
-                    read_password().unwrap(); // Wait for user input
-                    attempts = 0; // Reset attempts after user acknowledgment
-                } else {
-                    println!("Incorrect passphrase. Pleasee try again.");
+                match password.trim().to_lowercase().as_str() {
+                    "exit" => {
+                        println!("Operation cancelled by user.");
+                        process::exit(0);
+                    }
+                    "logout" => {
+                        if let Err(e) = cache.clear_cache() {
+                            println!("Warning: Failed to clear password cache: {}", e);
+                        }
+                        println!("Successfully logged out. Password cache cleared.");
+                        attempts = 0;
+                        continue;
+                    }
+                    password => {
+                        if verify_user_credentials(username, password, store) {
+                            // Cache the successful credentials
+                            if let Err(e) = cache.cache_password(username, password) {
+                                println!("Warning: Failed to cache credentials: {}", e);
+                            }
+                            return Some((username.to_string(), password.to_string()));
+                        }
+
+                        if attempts >= 3 {
+                            println!("Multiple failed attempts.");
+                            println!("Press ENTER to try again, type 'exit' to quit, or 'logout' to clear cache.");
+                            read_password().unwrap();
+                            attempts = 0;
+                        } else {
+                            attempts += 1;
+                            println!("Authentication failed. Please try again.");
+                        }
+                    }
                 }
             }
         }
