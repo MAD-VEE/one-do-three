@@ -146,7 +146,7 @@ impl SecurePasswordCache {
     }
 
     // Retrieve cached password if it exists and hasn't expired
-    fn get_cached_password(&self) -> io::Result<Option<String>> {
+    fn get_cached_password(&self) -> io::Result<Option<(String, String)>> {
         match self.keyring.get_password() {
             Ok(stored) => {
                 let cached: CachedPassword = serde_json::from_str(&stored)
@@ -162,7 +162,7 @@ impl SecurePasswordCache {
                     self.clear_cache()?;
                     Ok(None)
                 } else {
-                    Ok(Some(cached.password))
+                    Ok(Some((cached.username, cached.password)))
                 }
             }
             Err(_) => Ok(None),
