@@ -74,7 +74,7 @@ impl UserStore {
     // Function to add a new user to the store
     // Takes ownership of username, email and password strings
     // Returns io::Result to handle potential errors
-    fn add_user(&mut self, username: String, email: String, password: String) -> io::Result<()> {
+    pub fn add_user(&mut self, username: String, email: String, password: String) -> io::Result<()> {
         // Get current timestamp for user creation and last login times
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -99,7 +99,6 @@ impl UserStore {
         };
 
         // Insert the new user into the HashMap
-        // username is used as the key, user struct as the value
         self.users.insert(username, user);
         Ok(())
     }
@@ -107,7 +106,7 @@ impl UserStore {
     // Function to retrieve a user from the store
     // Takes a reference to username and returns an Option containing a reference to the User
     // Returns None if user doesn't exist
-    fn get_user(&self, username: &str) -> Option<&User> {
+    pub fn get_user(&self, username: &str) -> Option<&User> {
         self.users.get(username)
     }
 }
