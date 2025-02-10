@@ -39,6 +39,7 @@ struct Task {
 // Structure for storing password with timestamp in keyring
 #[derive(Serialize, Deserialize)]
 struct CachedPassword {
+    username: String,
     password: String,
     timestamp: u64,
 }
@@ -309,32 +310,37 @@ fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    
+
     // Check if user has exceeded maximum attempts (3)
     if user.failed_attempts >= 3 {
         // Calculate time passed since last attempt
         let time_since_last_attempt = current_time - user.last_failed_attempt;
-        
+
         // If less than 30 seconds have passed, prevent login attempt
         if time_since_last_attempt < 30 {
-            println!("Too many failed attempts. Please wait {} seconds before trying again.", 
-                    30 - time_since_last_attempt);
+            println!(
+                "Too many failed attempts. Please wait {} seconds before trying again.",
+                30 - time_since_last_attempt
+            );
             return false;
         }
-        
+
         // Reset failed attempts counter after 30-second timeout
         user.failed_attempts = 0;
     }
-    
+
     // Increment failed attempts and update last attempt timestamp
     user.failed_attempts += 1;
     user.last_failed_attempt = current_time;
-    
+
     // Save the updated user store to persist the failed attempt count
-    if let Err(e) = save_user_store(store, &derive_key_from_passphrase("master_key", &store.salt)) {
+    if let Err(e) = save_user_store(
+        store,
+        &derive_key_from_passphrase("master_key", &store.salt),
+    ) {
         println!("Warning: Failed to save user data: {}", e);
     }
-    
+
     true
 }
 
@@ -470,6 +476,73 @@ fn load_user_store(master_key: &[u8]) -> io::Result<UserStore> {
         }
         Err(_) => Ok(create_user_store()),
     }
+}
+
+fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore) -> bool {
+    // Generate password hash using store's salt
+    let password_hash = hex::encode(derive_key_from_passphrase(password, &store.salt));
+
+    // Get mutable reference to user (if exists)
+    if let Some(user) = store.users.get_mut(username) {
+        // Compare with stored hash
+        if user.password_hash == password_hash {
+            // Reset failed attempts and update last login on successful login
+            user.failed_attempts = 0;
+            user.last_login = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            // Save the updated user store
+            if let Err(e) = save_user_store(
+                store,
+                &derive_key_from_passphrase("master_key", &store.salt),
+            ) {
+                println!("Warning: Failed to save user data: {}", e);
+            }
+            return true;
+        }
+
+        // Handle failed attempt inline instead of calling the separate function
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Check if user has exceeded maximum attempts (3)
+        if user.failed_attempts >= 3 {
+            // Calculate time passed since last attempt
+            let time_since_last_attempt = current_time - user.last_failed_attempt;
+
+            // If less than 30 seconds have passed, prevent login attempt
+            if time_since_last_attempt < 30 {
+                println!(
+                    "Too many failed attempts. Please wait {} seconds before trying again.",
+                    30 - time_since_last_attempt
+                );
+                return false;
+            }
+
+            // Reset failed attempts counter after 30-second timeout
+            user.failed_attempts = 0;
+        }
+
+        // Increment failed attempts and update last attempt timestamp
+        user.failed_attempts += 1;
+        user.last_failed_attempt = current_time;
+
+        // Save the updated user store
+        if let Err(e) = save_user_store(
+            store,
+            &derive_key_from_passphrase("master_key", &store.salt),
+        ) {
+            println!("Warning: Failed to save user data: {}", e);
+        }
+
+        return false;
+    }
+
+    false
 }
 
 fn main() {
