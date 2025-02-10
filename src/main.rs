@@ -309,37 +309,32 @@ fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-
+    
     // Check if user has exceeded maximum attempts (3)
     if user.failed_attempts >= 3 {
         // Calculate time passed since last attempt
         let time_since_last_attempt = current_time - user.last_failed_attempt;
-
+        
         // If less than 30 seconds have passed, prevent login attempt
         if time_since_last_attempt < 30 {
-            println!(
-                "Too many failed attempts. Please wait {} seconds before trying again.",
-                30 - time_since_last_attempt
-            );
+            println!("Too many failed attempts. Please wait {} seconds before trying again.", 
+                    30 - time_since_last_attempt);
             return false;
         }
-
+        
         // Reset failed attempts counter after 30-second timeout
         user.failed_attempts = 0;
     }
-
+    
     // Increment failed attempts and update last attempt timestamp
     user.failed_attempts += 1;
     user.last_failed_attempt = current_time;
-
+    
     // Save the updated user store to persist the failed attempt count
-    if let Err(e) = save_user_store(
-        store,
-        &derive_key_from_passphrase("master_key", &store.salt),
-    ) {
+    if let Err(e) = save_user_store(store, &derive_key_from_passphrase("master_key", &store.salt)) {
         println!("Warning: Failed to save user data: {}", e);
     }
-
+    
     true
 }
 
