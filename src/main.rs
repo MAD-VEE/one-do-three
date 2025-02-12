@@ -941,6 +941,11 @@ fn main() {
                         .required(true),
                 ),
         )
+        .subcommand(
+            Command::new("reset-password")
+                .about("Request a password reset")
+                .arg(Arg::new("email").help("Your email address").required(true)),
+        )
         .subcommand(Command::new("logout").about("Logout and clear cached password"))
         .get_matches();
 
