@@ -193,6 +193,19 @@ impl From<io::Error> for TaskError {
     }
 }
 
+// Implementation of Display trait for TaskError
+impl std::fmt::Display for TaskError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskError::FilePermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
+            TaskError::FileNotFound(msg) => write!(f, "File not found: {}", msg),
+            TaskError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
+            TaskError::EncryptionError(msg) => write!(f, "Encryption error: {}", msg),
+            TaskError::IoError(e) => write!(f, "IO error: {}", e),
+        }
+    }
+}
+
 // Function to generate a random salt for PBKDF2
 fn generate_random_salt() -> Vec<u8> {
     let mut rng = rand::thread_rng();
