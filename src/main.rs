@@ -79,7 +79,7 @@ enum TaskError {
     IoError(io::Error),
 }
 
-// Add these structs for password management
+// Password management struct
 #[derive(Debug)]
 enum PasswordError {
     TooShort,
@@ -93,6 +93,12 @@ enum PasswordError {
 // Secure password cache implementation using system keyring
 struct SecurePasswordCache {
     keyring: Entry,
+}
+
+struct PasswordResetToken {
+    token: String,
+    expires_at: u64,
+    user_email: String,
 }
 
 // Implementation block for UserStore to handle user management operations
