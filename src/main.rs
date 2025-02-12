@@ -1130,6 +1130,24 @@ fn main() {
                 }
             }
         }
+        // Handle reset-passowrd command
+        Some(("reset-password", sub_matches)) => {
+            let email = sub_matches.get_one::<String>("email").unwrap();
+
+            // Find user by email
+            if let Some(user) = store.users.values().find(|u| u.email == email) {
+                match user.request_password_reset() {
+                    Ok(reset_token) => match send_reset_email(&reset_token) {
+                        Ok(_) => println!("Password reset email sent. Please check your inbox."),
+                        Err(e) => println!("Failed to send reset email: {}", e),
+                    },
+                    Err(e) => println!("Failed to create reset token: {}", e),
+                }
+            } else {
+                // Don't reveal if email exists or not for security
+                println!("If this email is registered, you will receive a reset link shortly.");
+            }
+        }
         _ => {
             println!("No valid command provided. Use --help for usage information.");
         }
