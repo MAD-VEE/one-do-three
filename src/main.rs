@@ -320,6 +320,35 @@ fn validate_password(password: &str) -> Result<(), PasswordError> {
     Ok(())
 }
 
+// Function to send password reset email
+fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> {
+    let email = Message::builder()
+        .from("noreply@yourdomain.com".parse().unwrap())
+        .to(reset_token.user_email.parse().unwrap())
+        .subject("Password Reset Request")
+        .header(ContentType::TEXT_PLAIN)
+        .body(format!(
+            "Your password reset token is: {}\n\nThis token will expire in 30 minutes.",
+            reset_token.token
+        ))
+        .map_err(|e| format!("Failed to create email: {}", e))?;
+
+    // Create SMTP transport
+    let creds = Credentials::new("smtp_username".to_string(), "smtp_password".to_string());
+
+    let mailer = SmtpTransport::relay("smtp.yourdomain.com")
+        .unwrap()
+        .credentials(creds)
+        .build();
+
+    // Send the email
+    mailer
+        .send(&email)
+        .map_err(|e| format!("Failed to send email: {}", e))?;
+
+    Ok(())
+}
+
 // Implement conversion from io::Error to TaskError
 impl From<io::Error> for TaskError {
     fn from(error: io::Error) -> Self {
