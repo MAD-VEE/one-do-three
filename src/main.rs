@@ -57,6 +57,16 @@ struct User {
     tasks_file: String, // Each user gets their own encrypted tasks file
 }
 
+// Custom error type for task operations
+#[derive(Debug)]
+enum TaskError {
+    FilePermissionDenied(String),
+    FileNotFound(String),
+    InvalidData(String),
+    EncryptionError(String),
+    IoError(io::Error),
+}
+
 // Container for all users with encryption metadata for secure storage
 #[derive(Serialize, Deserialize)]
 struct UserStore {
