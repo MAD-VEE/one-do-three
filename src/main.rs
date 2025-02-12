@@ -293,21 +293,34 @@ fn load_tasks_from_file(user: &User, passphrase: &str) -> HashMap<String, Task> 
     tasks
 }
 
-// Function to save tasks to the encrypted file
-fn save_tasks_to_file(tasks: &HashMap<String, Task>, passphrase: &str) -> io::Result<()> {
+// Function to save tasks to the user-specific encrypted file
+fn save_tasks_to_file(
+    tasks: &HashMap<String, Task>,
+    user: &User,
+    passphrase: &str,
+) -> io::Result<()> {
+    // Convert tasks to JSON string
     let data = serde_json::to_string_pretty(tasks).unwrap();
+
+    // Generate new IV and salt for each save
     let iv = generate_random_iv();
     let salt = generate_random_salt();
+
+    // Derive encryption key from user's passphrase
     let encryption_key = derive_key_from_passphrase(passphrase, &salt);
+
+    // Encrypt the task data
     let encrypted_data = encrypt_data(&data, &encryption_key, &iv);
 
+    // Combine salt, IV, and encrypted data
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&salt);
     file_data.extend_from_slice(&iv);
     file_data.extend_from_slice(&encrypted_data);
 
-    File::create(STORAGE_FILE)?.write_all(&file_data)?;
-    println!("Changes successfully saved to file.");
+    // Write to user's specific task file
+    File::create(&user.tasks_file)?.write_all(&file_data)?;
+    println!("Changes successfully saved to file {}.", user.tasks_file);
     Ok(())
 }
 
