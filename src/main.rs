@@ -687,8 +687,14 @@ fn main() {
         .get(&username)
         .expect("User not found after authentication");
 
-    // Load tasks from user-specific encrypted file
-    let mut tasks: HashMap<String, Task> = load_tasks_from_file(user, &password);
+    // Load tasks from user-specific encrypted file with error handling
+    let mut tasks: HashMap<String, Task> = match load_tasks_from_file(user, &password) {
+        Ok(tasks) => tasks,
+        Err(e) => {
+            println!("Error loading tasks: {}", e);
+            process::exit(1);
+        }
+    };
 
     // Set up CLI command structure using clap
     let matches = Command::new("one-do-three")
