@@ -927,6 +927,20 @@ fn main() {
                     .required(true),
             ),
         )
+        .subcommand(
+            Command::new("change-password")
+                .about("Change your password")
+                .arg(
+                    Arg::new("old-password")
+                        .help("Your current password")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("new-password")
+                        .help("Your new password")
+                        .required(true),
+                ),
+        )
         .subcommand(Command::new("logout").about("Logout and clear cached password"))
         .get_matches();
 
