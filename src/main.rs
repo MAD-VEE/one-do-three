@@ -6,7 +6,11 @@ use clap::{Arg, Command};
 use hmac::Hmac;
 use itertools::Itertools;
 use keyring::Entry;
+use lettre::message::header::ContentType;
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{Message, SmtpTransport, Transport};
 use pbkdf2::pbkdf2;
+use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rpassword::read_password;
 use serde::{Deserialize, Serialize};
@@ -73,6 +77,17 @@ enum TaskError {
     InvalidData(String),
     EncryptionError(String),
     IoError(io::Error),
+}
+
+// Add these structs for password management
+#[derive(Debug)]
+enum PasswordError {
+    TooShort,
+    NoUppercase,
+    NoLowercase,
+    NoNumber,
+    NoSpecialChar,
+    MatchesOld,
 }
 
 // Secure password cache implementation using system keyring
