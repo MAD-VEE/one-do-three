@@ -297,6 +297,29 @@ impl User {
     }
 }
 
+// Function to validate password strength
+fn validate_password(password: &str) -> Result<(), PasswordError> {
+    if password.len() < 8 {
+        return Err(PasswordError::TooShort);
+    }
+    if !password.chars().any(|c| c.is_uppercase()) {
+        return Err(PasswordError::NoUppercase);
+    }
+    if !password.chars().any(|c| c.is_lowercase()) {
+        return Err(PasswordError::NoLowercase);
+    }
+    if !password.chars().any(|c| c.is_numeric()) {
+        return Err(PasswordError::NoNumber);
+    }
+    if !password
+        .chars()
+        .any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c))
+    {
+        return Err(PasswordError::NoSpecialChar);
+    }
+    Ok(())
+}
+
 // Implement conversion from io::Error to TaskError
 impl From<io::Error> for TaskError {
     fn from(error: io::Error) -> Self {
