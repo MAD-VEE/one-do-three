@@ -780,14 +780,15 @@ fn main() {
             process::exit(0);
         }
         Some(("add", sub_matches)) => {
-            let name = sub_matches.get_one::<String>("name").unwrap();
-            let description = sub_matches.get_one::<String>("description").unwrap();
-            let priority = sub_matches.get_one::<String>("priority").unwrap();
-
+            // First check passphrase
             if !is_passphrase_correct(user, &password) {
                 println!("Incorrect passphrase. Task not added.");
                 return;
             }
+
+            let name = sub_matches.get_one::<String>("name").unwrap();
+            let description = sub_matches.get_one::<String>("description").unwrap();
+            let priority = sub_matches.get_one::<String>("priority").unwrap();
 
             let new_task = Task {
                 name: name.to_string(),
@@ -797,63 +798,75 @@ fn main() {
             };
 
             tasks.insert(name.clone(), new_task);
-            save_tasks_to_file(&tasks, user, &password).expect("Failed to save tasks to file");
-            println!("Task added: {}", name);
+
+            // Add error handling to save operation
+            match save_tasks_to_file(&tasks, user, &password) {
+                Ok(_) => println!("Task added: {}", name),
+                Err(e) => println!("Error saving task: {}", e),
+            }
         }
+        // Handle list command
         Some(("list", sub_matches)) => {
-            // Handle list command
+            // First check passphrase
             if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to list tasks.");
                 return;
             }
 
-            if tasks.is_empty() {
-                println!("No tasks available.");
-                return;
-            }
-
-            let filter = sub_matches.get_one::<String>("filter");
-            let sort = sub_matches.get_one::<String>("sort");
-
-            let filtered_tasks = tasks
-                .iter()
-                .filter(|(_, task)| {
-                    if let Some(f) = filter {
-                        match f.as_str() {
-                            "completed" => task.completed,
-                            "high" => task.priority == "High",
-                            _ => true,
-                        }
-                    } else {
-                        true
+            // Add error handling to task loading
+            match load_tasks_from_file(user, &password) {
+                Ok(tasks) => {
+                    if tasks.is_empty() {
+                        println!("No tasks available.");
+                        return;
                     }
-                })
-                .collect::<HashMap<_, _>>();
 
-            let sorted_tasks = filtered_tasks
-                .iter()
-                .sorted_by(|a, b| {
-                    if let Some(s) = sort {
-                        match s.as_str() {
-                            "priority" => a.1.priority.cmp(&b.1.priority),
-                            "completed" => a.1.completed.cmp(&b.1.completed),
-                            _ => a.0.cmp(b.0),
-                        }
-                    } else {
-                        a.0.cmp(b.0)
+                    let filter = sub_matches.get_one::<String>("filter");
+                    let sort = sub_matches.get_one::<String>("sort");
+
+                    let filtered_tasks = tasks
+                        .iter()
+                        .filter(|(_, task)| {
+                            if let Some(f) = filter {
+                                match f.as_str() {
+                                    "completed" => task.completed,
+                                    "high" => task.priority == "High",
+                                    _ => true,
+                                }
+                            } else {
+                                true
+                            }
+                        })
+                        .collect::<HashMap<_, _>>();
+
+                    let sorted_tasks = filtered_tasks
+                        .iter()
+                        .sorted_by(|a, b| {
+                            if let Some(s) = sort {
+                                match s.as_str() {
+                                    "priority" => a.1.priority.cmp(&b.1.priority),
+                                    "completed" => a.1.completed.cmp(&b.1.completed),
+                                    _ => a.0.cmp(b.0),
+                                }
+                            } else {
+                                a.0.cmp(b.0)
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    for (name, task) in sorted_tasks {
+                        println!(
+                            "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
+                            name, task.description, task.priority, task.completed
+                        );
                     }
-                })
-                .collect::<Vec<_>>();
-
-            for (name, task) in sorted_tasks {
-                println!(
-                    "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
-                    name, task.description, task.priority, task.completed
-                );
+                }
+                Err(e) => println!("Error loading tasks: {}", e),
             }
         }
+        // Handle edit command
         Some(("edit", sub_matches)) => {
-            // Handle edit command
+            // First check passphrase
             if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to edit task.");
                 return;
@@ -872,14 +885,18 @@ fn main() {
                     task.completed = completed == "true";
                 }
 
-                save_tasks_to_file(&tasks, user, &password).expect("Failed to save tasks to file");
-                println!("Task updated: {}", name);
+                // Add error handling to save operation
+                match save_tasks_to_file(&tasks, user, &password) {
+                    Ok(_) => println!("Task updated: {}", name),
+                    Err(e) => println!("Error saving task update: {}", e),
+                }
             } else {
                 println!("Task not found: {}", name);
             }
         }
+        // Handle delete command
         Some(("delete", sub_matches)) => {
-            // Handle delete command
+            // First check passphrase
             if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to delete task.");
                 return;
@@ -888,8 +905,11 @@ fn main() {
             let name = sub_matches.get_one::<String>("name").unwrap();
 
             if tasks.remove(name).is_some() {
-                save_tasks_to_file(&tasks, user, &password).expect("Failed to save tasks to file");
-                println!("Task deleted: {}", name);
+                // Add error handling to save operation
+                match save_tasks_to_file(&tasks, user, &password) {
+                    Ok(_) => println!("Task deleted: {}", name),
+                    Err(e) => println!("Error saving after deletion: {}", e),
+                }
             } else {
                 println!("Task not found: {}", name);
             }
