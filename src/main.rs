@@ -275,52 +275,43 @@ fn is_passphrase_correct(user: &User, passphrase: &str) -> bool {
     }
 }
 
-// Function to load tasks from the user-specific encrypted file
-fn load_tasks_from_file(user: &User, passphrase: &str) -> HashMap<String, Task> {
+// Function to load tasks from the user-specific encrypted file with error handling
+fn load_tasks_from_file(user: &User, passphrase: &str) -> Result<HashMap<String, Task>, TaskError> {
+    // Check file permissions first
+    check_file_permissions(user, &user.tasks_file)?;
+
     let mut tasks = HashMap::new();
-
-    // Attempt to open the user's specific task file
-    match File::open(&user.tasks_file) {
+    let file_data = match File::open(&user.tasks_file) {
         Ok(mut file) => {
-            let mut file_data = Vec::new();
-            if let Err(e) = file.read_to_end(&mut file_data) {
-                println!("Error reading from file {}: {}", user.tasks_file, e);
-                return tasks;
-            }
-
-            // Check if file has minimum required data (salt + iv)
-            if file_data.len() >= 32 {
-                let salt = file_data[..16].to_vec();
-                let iv = file_data[16..32].to_vec();
-                let encrypted_data = &file_data[32..];
-
-                // Derive encryption key from user's passphrase
-                let encryption_key = derive_key_from_passphrase(passphrase, &salt);
-
-                // Attempt to decrypt and parse the data
-                match decrypt_data(encrypted_data, &encryption_key, &iv) {
-                    Ok(decrypted_data) => {
-                        if let Ok(parsed) = serde_json::from_str(&decrypted_data) {
-                            tasks = parsed;
-                        } else {
-                            println!("Error deserializing task data for user {}.", user.username);
-                        }
-                    }
-                    Err(e) => {
-                        println!("Error decrypting data for user {}: {}", user.username, e);
-                    }
-                }
-            }
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)
+                .map_err(|e| TaskError::IoError(e))?;
+            data
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Ok(tasks); // Return empty HashMap for new users
         }
         Err(e) => {
-            // If file doesn't exist, just return empty HashMap
-            if e.kind() != io::ErrorKind::NotFound {
-                println!("Error opening task file for user {}: {}", user.username, e);
-            }
+            return Err(TaskError::IoError(e));
         }
+    };
+
+    if file_data.len() < 32 {
+        return Err(TaskError::InvalidData("File data is too short".to_string()));
     }
 
-    tasks
+    let salt = file_data[..16].to_vec();
+    let iv = file_data[16..32].to_vec();
+    let encrypted_data = &file_data[32..];
+
+    let encryption_key = derive_key_from_passphrase(passphrase, &salt);
+    let decrypted_data = decrypt_data(encrypted_data, &encryption_key, &iv)
+        .map_err(|e| TaskError::EncryptionError(e))?;
+
+    tasks =
+        serde_json::from_str(&decrypted_data).map_err(|e| TaskError::InvalidData(e.to_string()))?;
+
+    Ok(tasks)
 }
 
 // Function to save tasks to the user-specific encrypted file
