@@ -57,6 +57,14 @@ struct User {
     tasks_file: String, // Each user gets their own encrypted tasks file
 }
 
+// Container for all users with encryption metadata for secure storage
+#[derive(Serialize, Deserialize)]
+struct UserStore {
+    users: HashMap<String, User>,
+    salt: Vec<u8>,
+    iv: Vec<u8>,
+}
+
 // Custom error type for task operations
 #[derive(Debug)]
 enum TaskError {
@@ -65,14 +73,6 @@ enum TaskError {
     InvalidData(String),
     EncryptionError(String),
     IoError(io::Error),
-}
-
-// Container for all users with encryption metadata for secure storage
-#[derive(Serialize, Deserialize)]
-struct UserStore {
-    users: HashMap<String, User>,
-    salt: Vec<u8>,
-    iv: Vec<u8>,
 }
 
 // Secure password cache implementation using system keyring
@@ -183,6 +183,13 @@ impl SecurePasswordCache {
     fn clear_cache(&self) -> io::Result<()> {
         let _ = self.keyring.delete_password();
         Ok(())
+    }
+}
+
+// Implement conversion from io::Error to TaskError
+impl From<io::Error> for TaskError {
+    fn from(error: io::Error) -> Self {
+        TaskError::IoError(error)
     }
 }
 
