@@ -1148,6 +1148,39 @@ fn main() {
                 println!("If this email is registered, you will receive a reset link shortly.");
             }
         }
+        // Handle confirm-reset command
+        Some(("confirm-reset", sub_matches)) => {
+            let token = sub_matches.get_one::<String>("token").unwrap();
+            let new_password = sub_matches.get_one::<String>("new-password").unwrap();
+
+            // In a real application, you would look up the stored token
+            // Here we're just showing the structure
+            if let Some(user) = store.users.get_mut(&username) {
+                // This is placeholder code - you need to implement token storage
+                let stored_token = PasswordResetToken {
+                    token: token.clone(),
+                    expires_at: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        + 1800,
+                    user_email: user.email.clone(),
+                };
+
+                match user.reset_password_with_token(token, new_password, &stored_token, &store) {
+                    Ok(_) => {
+                        match save_user_store(
+                            &store,
+                            &derive_key_from_passphrase("master_key", &store.salt),
+                        ) {
+                            Ok(_) => println!("Password reset successful."),
+                            Err(e) => println!("Error saving new password: {}", e),
+                        }
+                    }
+                    Err(e) => println!("Failed to reset password: {}", e),
+                }
+            }
+        }
         _ => {
             println!("No valid command provided. Use --help for usage information.");
         }
