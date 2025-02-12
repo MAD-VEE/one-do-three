@@ -245,41 +245,48 @@ fn is_passphrase_correct(passphrase: &str) -> bool {
     }
 }
 
-// Function to load tasks from the encrypted file
-fn load_tasks_from_file(passphrase: &str) -> HashMap<String, Task> {
+// Function to load tasks from the user-specific encrypted file
+fn load_tasks_from_file(user: &User, passphrase: &str) -> HashMap<String, Task> {
     let mut tasks = HashMap::new();
 
-    match File::open(STORAGE_FILE) {
+    // Attempt to open the user's specific task file
+    match File::open(&user.tasks_file) {
         Ok(mut file) => {
             let mut file_data = Vec::new();
             if let Err(e) = file.read_to_end(&mut file_data) {
-                println!("Error reading from file: {}", e);
+                println!("Error reading from file {}: {}", user.tasks_file, e);
                 return tasks;
             }
 
+            // Check if file has minimum required data (salt + iv)
             if file_data.len() >= 32 {
                 let salt = file_data[..16].to_vec();
                 let iv = file_data[16..32].to_vec();
                 let encrypted_data = &file_data[32..];
 
+                // Derive encryption key from user's passphrase
                 let encryption_key = derive_key_from_passphrase(passphrase, &salt);
 
+                // Attempt to decrypt and parse the data
                 match decrypt_data(encrypted_data, &encryption_key, &iv) {
                     Ok(decrypted_data) => {
                         if let Ok(parsed) = serde_json::from_str(&decrypted_data) {
                             tasks = parsed;
                         } else {
-                            println!("Error deserializing task data.");
+                            println!("Error deserializing task data for user {}.", user.username);
                         }
                     }
                     Err(e) => {
-                        println!("Error decrypting data: {}", e);
+                        println!("Error decrypting data for user {}: {}", user.username, e);
                     }
                 }
             }
         }
         Err(e) => {
-            println!("Error opening file: {}", e);
+            // If file doesn't exist, just return empty HashMap
+            if e.kind() != io::ErrorKind::NotFound {
+                println!("Error opening task file for user {}: {}", user.username, e);
+            }
         }
     }
 
