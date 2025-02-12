@@ -1110,6 +1110,26 @@ fn main() {
                 println!("Task not found: {}", name);
             }
         }
+        // Handle change-password command
+        Some(("change-password", sub_matches)) => {
+            let old_password = sub_matches.get_one::<String>("old-password").unwrap();
+            let new_password = sub_matches.get_one::<String>("new-password").unwrap();
+
+            if let Some(user) = store.users.get_mut(&username) {
+                match user.change_password(old_password, new_password, &store) {
+                    Ok(_) => {
+                        match save_user_store(
+                            &store,
+                            &derive_key_from_passphrase("master_key", &store.salt),
+                        ) {
+                            Ok(_) => println!("Password changed successfully."),
+                            Err(e) => println!("Error saving password change: {}", e),
+                        }
+                    }
+                    Err(e) => println!("Failed to change password: {}", e),
+                }
+            }
+        }
         _ => {
             println!("No valid command provided. Use --help for usage information.");
         }
