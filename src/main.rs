@@ -281,6 +281,8 @@ fn load_tasks_from_file(user: &User, passphrase: &str) -> Result<HashMap<String,
     check_file_permissions(user, &user.tasks_file)?;
 
     let mut tasks = HashMap::new();
+
+    // Attempt to open the user's specific task file
     let file_data = match File::open(&user.tasks_file) {
         Ok(mut file) => {
             let mut data = Vec::new();
@@ -296,6 +298,7 @@ fn load_tasks_from_file(user: &User, passphrase: &str) -> Result<HashMap<String,
         }
     };
 
+    // Check if file has minimum required data (salt + iv)
     if file_data.len() < 32 {
         return Err(TaskError::InvalidData("File data is too short".to_string()));
     }
@@ -304,6 +307,7 @@ fn load_tasks_from_file(user: &User, passphrase: &str) -> Result<HashMap<String,
     let iv = file_data[16..32].to_vec();
     let encrypted_data = &file_data[32..];
 
+    // Derive encryption key from user's passphrase
     let encryption_key = derive_key_from_passphrase(passphrase, &salt);
     let decrypted_data = decrypt_data(encrypted_data, &encryption_key, &iv)
         .map_err(|e| TaskError::EncryptionError(e))?;
@@ -319,9 +323,13 @@ fn save_tasks_to_file(
     tasks: &HashMap<String, Task>,
     user: &User,
     passphrase: &str,
-) -> io::Result<()> {
+) -> Result<(), TaskError> {
+    // Check file permissions first
+    check_file_permissions(user, &user.tasks_file)?;
+
     // Convert tasks to JSON string
-    let data = serde_json::to_string_pretty(tasks).unwrap();
+    let data =
+        serde_json::to_string_pretty(tasks).map_err(|e| TaskError::InvalidData(e.to_string()))?;
 
     // Generate new IV and salt for each save
     let iv = generate_random_iv();
@@ -340,7 +348,10 @@ fn save_tasks_to_file(
     file_data.extend_from_slice(&encrypted_data);
 
     // Write to user's specific task file
-    File::create(&user.tasks_file)?.write_all(&file_data)?;
+    File::create(&user.tasks_file)
+        .and_then(|mut file| file.write_all(&file_data))
+        .map_err(TaskError::IoError)?;
+
     println!("Changes successfully saved to file {}.", user.tasks_file);
     Ok(())
 }
