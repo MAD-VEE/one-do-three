@@ -207,6 +207,96 @@ impl SecurePasswordCache {
     }
 }
 
+// Functions to handle password management
+impl User {
+    // Function to change user's password
+    pub fn change_password(
+        &mut self,
+        old_password: &str,
+        new_password: &str,
+        store: &UserStore,
+    ) -> Result<(), String> {
+        // Verify old password
+        let old_hash = hex::encode(derive_key_from_passphrase(old_password, &store.salt));
+        if self.password_hash != old_hash {
+            return Err("Current password is incorrect".to_string());
+        }
+
+        // Validate new password
+        if let Err(e) = validate_password(new_password) {
+            return Err(format!("Invalid new password: {:?}", e));
+        }
+
+        // Check if new password matches old password
+        if old_password == new_password {
+            return Err("New password must be different from current password".to_string());
+        }
+
+        // Update password hash
+        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+
+        Ok(())
+    }
+
+    // Function to initiate password reset
+    pub fn request_password_reset(&self) -> Result<PasswordResetToken, String> {
+        // Generate random token
+        let token: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(32)
+            .map(char::from)
+            .collect();
+
+        // Set expiration time (30 minutes from now)
+        let expires_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 1800;
+
+        let reset_token = PasswordResetToken {
+            token,
+            expires_at,
+            user_email: self.email.clone(),
+        };
+
+        Ok(reset_token)
+    }
+
+    // Function to reset password using token
+    pub fn reset_password_with_token(
+        &mut self,
+        token: &str,
+        new_password: &str,
+        stored_token: &PasswordResetToken,
+        store: &UserStore,
+    ) -> Result<(), String> {
+        // Check if token matches
+        if token != stored_token.token {
+            return Err("Invalid reset token".to_string());
+        }
+
+        // Check if token has expired
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if current_time > stored_token.expires_at {
+            return Err("Reset token has expired".to_string());
+        }
+
+        // Validate new password
+        if let Err(e) = validate_password(new_password) {
+            return Err(format!("Invalid new password: {:?}", e));
+        }
+
+        // Update password hash
+        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+
+        Ok(())
+    }
+}
+
 // Implement conversion from io::Error to TaskError
 impl From<io::Error> for TaskError {
     fn from(error: io::Error) -> Self {
