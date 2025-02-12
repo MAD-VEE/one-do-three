@@ -221,9 +221,9 @@ fn decrypt_data(encrypted_data: &[u8], encryption_key: &[u8], iv: &[u8]) -> Resu
     }
 }
 
-// Function to check if the passphrase is correct
-fn is_passphrase_correct(passphrase: &str) -> bool {
-    match File::open(STORAGE_FILE) {
+// Function to check if the passphrase is correct (works with user context)
+fn is_passphrase_correct(user: &User, passphrase: &str) -> bool {
+    match File::open(&user.tasks_file) {
         Ok(mut file) => {
             let mut file_data = Vec::new();
             if let Err(_) = file.read_to_end(&mut file_data) {
@@ -241,7 +241,7 @@ fn is_passphrase_correct(passphrase: &str) -> bool {
                 false
             }
         }
-        Err(_) => false,
+        Err(_) => true, // Return true if file doesn't exist (new user)
     }
 }
 
