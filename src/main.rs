@@ -946,6 +946,20 @@ fn main() {
                 .about("Request a password reset")
                 .arg(Arg::new("email").help("Your email address").required(true)),
         )
+        .subcommand(
+            Command::new("confirm-reset")
+                .about("Confirm password reset with token")
+                .arg(
+                    Arg::new("token")
+                        .help("Reset token from email")
+                        .required(true),
+                )
+                .arg(
+                    Arg::new("new-password")
+                        .help("Your new password")
+                        .required(true),
+                ),
+        )
         .subcommand(Command::new("logout").about("Logout and clear cached password"))
         .get_matches();
 
