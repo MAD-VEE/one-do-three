@@ -607,8 +607,14 @@ fn main() {
         }
     };
 
-    // Load tasks from encrypted file
-    let mut tasks: HashMap<String, Task> = load_tasks_from_file(&password);
+    // Get the authenticated user
+    let user = store
+        .users
+        .get(&username)
+        .expect("User not found after authentication");
+
+    // Load tasks from user-specific encrypted file
+    let mut tasks: HashMap<String, Task> = load_tasks_from_file(user, &password);
 
     // Set up CLI command structure using clap
     let matches = Command::new("one-do-three")
@@ -694,12 +700,11 @@ fn main() {
             process::exit(0);
         }
         Some(("add", sub_matches)) => {
-            // Handle add command
             let name = sub_matches.get_one::<String>("name").unwrap();
             let description = sub_matches.get_one::<String>("description").unwrap();
             let priority = sub_matches.get_one::<String>("priority").unwrap();
 
-            if !is_passphrase_correct(&password) {
+            if !is_passphrase_correct(user, &password) {
                 println!("Incorrect passphrase. Task not added.");
                 return;
             }
@@ -712,12 +717,12 @@ fn main() {
             };
 
             tasks.insert(name.clone(), new_task);
-            save_tasks_to_file(&tasks, &password).expect("Failed to save tasks to file");
+            save_tasks_to_file(&tasks, user, &password).expect("Failed to save tasks to file");
             println!("Task added: {}", name);
         }
         Some(("list", sub_matches)) => {
             // Handle list command
-            if !is_passphrase_correct(&password) {
+            if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to list tasks.");
                 return;
             }
@@ -769,7 +774,7 @@ fn main() {
         }
         Some(("edit", sub_matches)) => {
             // Handle edit command
-            if !is_passphrase_correct(&password) {
+            if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to edit task.");
                 return;
             }
@@ -787,7 +792,7 @@ fn main() {
                     task.completed = completed == "true";
                 }
 
-                save_tasks_to_file(&tasks, &password).expect("Failed to save tasks to file");
+                save_tasks_to_file(&tasks, user, &password).expect("Failed to save tasks to file");
                 println!("Task updated: {}", name);
             } else {
                 println!("Task not found: {}", name);
@@ -795,7 +800,7 @@ fn main() {
         }
         Some(("delete", sub_matches)) => {
             // Handle delete command
-            if !is_passphrase_correct(&password) {
+            if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to delete task.");
                 return;
             }
@@ -803,7 +808,7 @@ fn main() {
             let name = sub_matches.get_one::<String>("name").unwrap();
 
             if tasks.remove(name).is_some() {
-                save_tasks_to_file(&tasks, &password).expect("Failed to save tasks to file");
+                save_tasks_to_file(&tasks, user, &password).expect("Failed to save tasks to file");
                 println!("Task deleted: {}", name);
             } else {
                 println!("Task not found: {}", name);
