@@ -472,6 +472,48 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     }
 }
 
+// Function to check file permissions for a user
+fn check_file_permissions(user: &User, file_path: &str) -> Result<(), TaskError> {
+    let metadata = match std::fs::metadata(file_path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            // If file doesn't exist, we'll create it later
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(TaskError::IoError(e));
+        }
+    };
+
+    // Check if file is owned by current process
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let current_uid = nix::unistd::getuid().as_raw();
+
+        if metadata.uid() != current_uid {
+            return Err(TaskError::FilePermissionDenied(format!(
+                "File {} is not owned by current user",
+                file_path
+            )));
+        }
+    }
+
+    // Check if file is writable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o200 == 0 {
+            return Err(TaskError::FilePermissionDenied(format!(
+                "File {} is not writable",
+                file_path
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 // Helper function to read a line from stdin
 fn read_line() -> io::Result<String> {
     let mut input = String::new();
