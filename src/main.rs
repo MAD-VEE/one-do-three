@@ -696,6 +696,7 @@ fn create_user_store() -> UserStore {
         users: HashMap::new(),
         salt: generate_random_salt(),
         iv: generate_random_iv(),
+        reset_tokens: HashMap::new(),
     }
 }
 
