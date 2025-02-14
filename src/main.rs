@@ -61,12 +61,13 @@ struct User {
     tasks_file: String, // Each user gets their own encrypted tasks file
 }
 
-// Container for all users with encryption metadata for secure storage
+// Container for all users with encryption metadata for secure storage, and a token store to track active reset tokens
 #[derive(Serialize, Deserialize)]
 struct UserStore {
     users: HashMap<String, User>,
     salt: Vec<u8>,
     iv: Vec<u8>,
+    reset_tokens: HashMap<String, PasswordResetToken>,
 }
 
 // Custom error type for task operations
@@ -95,10 +96,13 @@ struct SecurePasswordCache {
     keyring: Entry,
 }
 
+// PasswordResetToken struct with a user identifier
+#[derive(Serialize, Deserialize, Clone)]
 struct PasswordResetToken {
     token: String,
     expires_at: u64,
     user_email: String,
+    username: String, // Adding username to track which user the token belongs to
 }
 
 // Implementation block for UserStore to handle user management operations
@@ -1135,7 +1139,11 @@ fn main() {
             let email = sub_matches.get_one::<String>("email").unwrap();
 
             // Find user by email
-            if let Some(user) = store.users.values().find(|u| u.email == email) {
+            if let Some(user) = store
+                .users
+                .values()
+                .find(|u| u.email.as_str() == email.as_str())
+            {
                 match user.request_password_reset() {
                     Ok(reset_token) => match send_reset_email(&reset_token) {
                         Ok(_) => println!("Password reset email sent. Please check your inbox."),
