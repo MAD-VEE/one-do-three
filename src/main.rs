@@ -218,10 +218,10 @@ impl User {
         &mut self,
         old_password: &str,
         new_password: &str,
-        store: &UserStore,
+        store_salt: &[u8],
     ) -> Result<(), String> {
         // Verify old password
-        let old_hash = hex::encode(derive_key_from_passphrase(old_password, &store.salt));
+        let old_hash = hex::encode(derive_key_from_passphrase(old_password, store_salt));
         if self.password_hash != old_hash {
             return Err("Current password is incorrect".to_string());
         }
@@ -237,7 +237,7 @@ impl User {
         }
 
         // Update password hash
-        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, store_salt));
 
         Ok(())
     }
@@ -259,9 +259,10 @@ impl User {
             + 1800;
 
         let reset_token = PasswordResetToken {
-            token,
+            token: token.clone(),
             expires_at,
             user_email: self.email.clone(),
+            username: self.username.clone(),
         };
 
         Ok(reset_token)
@@ -1120,8 +1121,11 @@ fn main() {
             let old_password = sub_matches.get_one::<String>("old-password").unwrap();
             let new_password = sub_matches.get_one::<String>("new-password").unwrap();
 
+            // Get store's salt before mutable borrow
+            let store_salt = store.salt.clone();
+
             if let Some(user) = store.users.get_mut(&username) {
-                match user.change_password(old_password, new_password, &store) {
+                match user.change_password(old_password, new_password, &store_salt) {
                     Ok(_) => {
                         match save_user_store(
                             &store,
@@ -1133,6 +1137,8 @@ fn main() {
                     }
                     Err(e) => println!("Failed to change password: {}", e),
                 }
+            } else {
+                println!("User not found.");
             }
         }
         // Handle reset-passowrd command
@@ -1146,10 +1152,26 @@ fn main() {
                 .find(|u| u.email.as_str() == email.as_str())
             {
                 match user.request_password_reset() {
-                    Ok(reset_token) => match send_reset_email(&reset_token) {
-                        Ok(_) => println!("Password reset email sent. Please check your inbox."),
-                        Err(e) => println!("Failed to send reset email: {}", e),
-                    },
+                    Ok(reset_token) => {
+                        // Store the token in UserStore
+                        store
+                            .reset_tokens
+                            .insert(reset_token.token.clone(), reset_token.clone());
+
+                        // Save the updated store
+                        match save_user_store(
+                            &store,
+                            &derive_key_from_passphrase("master_key", &store.salt),
+                        ) {
+                            Ok(_) => match send_reset_email(&reset_token) {
+                                Ok(_) => {
+                                    println!("Password reset email sent. Please check your inbox.")
+                                }
+                                Err(e) => println!("Failed to send reset email: {}", e),
+                            },
+                            Err(e) => println!("Failed to save reset token: {}", e),
+                        }
+                    }
                     Err(e) => println!("Failed to create reset token: {}", e),
                 }
             } else {
@@ -1162,32 +1184,49 @@ fn main() {
             let token = sub_matches.get_one::<String>("token").unwrap();
             let new_password = sub_matches.get_one::<String>("new-password").unwrap();
 
-            // In a real application, you would look up the stored token
-            // Here we're just showing the structure
-            if let Some(user) = store.users.get_mut(&username) {
-                // This is placeholder code - you need to implement token storage
-                let stored_token = PasswordResetToken {
-                    token: token.clone(),
-                    expires_at: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs()
-                        + 1800,
-                    user_email: user.email.clone(),
-                };
+            // Look up the stored token
+            if let Some(stored_token) = store.reset_tokens.get(token) {
+                // Check if token has expired
+                let current_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
 
-                match user.reset_password_with_token(token, new_password, &stored_token, &store) {
-                    Ok(_) => {
-                        match save_user_store(
-                            &store,
-                            &derive_key_from_passphrase("master_key", &store.salt),
-                        ) {
-                            Ok(_) => println!("Password reset successful."),
-                            Err(e) => println!("Error saving new password: {}", e),
-                        }
-                    }
-                    Err(e) => println!("Failed to reset password: {}", e),
+                if current_time > stored_token.expires_at {
+                    println!("Password reset token has expired. Please request a new one.");
+                    return;
                 }
+
+                // Find the user associated with this token
+                if let Some(user) = store.users.get_mut(&stored_token.username) {
+                    // Validate new password
+                    if let Err(e) = validate_password(new_password) {
+                        println!("Invalid new password: {:?}", e);
+                        return;
+                    }
+
+                    // Update password hash
+                    user.password_hash =
+                        hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+
+                    // Remove the used token
+                    store.reset_tokens.remove(token);
+
+                    // Save the updated store
+                    match save_user_store(
+                        &store,
+                        &derive_key_from_passphrase("master_key", &store.salt),
+                    ) {
+                        Ok(_) => {
+                            println!("Password reset successful. You can now log in with your new password.");
+                        }
+                        Err(e) => println!("Error saving new password: {}", e),
+                    }
+                } else {
+                    println!("Invalid reset token.");
+                }
+            } else {
+                println!("Invalid or expired reset token.");
             }
         }
         _ => {
