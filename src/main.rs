@@ -628,41 +628,17 @@ fn show_initial_options() {
     println!("\nEnter your choice (1-5):");
 }
 
-fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
-    loop {
-        show_initial_options();
-
-        match read_line().unwrap().trim() {
-            "1" => {
-                // Existing login logic
-                return authenticate_user(store);
-            }
-            "2" => {
-                if let Err(e) = handle_interactive_registration(store) {
-                    println!("Registration failed: {}", e);
-                }
-                continue;
-            }
-            "3" => {
-                println!("\nEnter your email address:");
-                let email = read_line().unwrap();
-                // Handle password reset logic here
-                continue;
-            }
-            "4" => {
-                show_help_information();
-                continue;
-            }
-            "5" => {
-                println!("Goodbye!");
-                process::exit(0);
-            }
-            _ => {
-                println!("Invalid choice. Please try again.");
-                continue;
-            }
-        }
-    }
+// Help information function
+fn show_help_information() {
+    println!("\n=== Task Manager Help ===");
+    println!("Available commands:");
+    println!("  add      - Add a new task");
+    println!("  list     - List all tasks");
+    println!("  edit     - Edit an existing task");
+    println!("  delete   - Delete a task");
+    println!("  register - Create a new account");
+    println!("  logout   - Log out of current session");
+    println!("\nFor more detailed help on any command, type: command --help");
 }
 
 // Function to encrypt data using AES-256-CBC
