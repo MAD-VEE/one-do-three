@@ -1239,15 +1239,25 @@ fn main() {
                 return;
             }
 
-            // Add this to your delete task command:
-            println!(
-                "Are you sure you want to delete task '{}'? Type 'YES' to confirm:",
-                name
-            );
-            let confirmation = read_line().unwrap();
-            if confirmation.trim() != "YES" {
-                println!("Task deletion cancelled.");
-                return;
+            // Asking for deletion confirmation
+            loop {
+                print!("Are you sure you want to delete task '{}'? (y/n): ", name);
+                io::stdout().flush().unwrap(); // Ensure the prompt is displayed before input
+
+                let mut confirmation = String::new();
+                io::stdin().read_line(&mut confirmation).unwrap();
+                let confirmation = confirmation.trim().to_lowercase();
+
+                if confirmation.is_empty() || confirmation == "y" {
+                    println!("Task '{}' deleted.", name);
+                    // Add the actual deletion logic here
+                    break;
+                } else if confirmation == "n" {
+                    println!("Task deletion cancelled.");
+                    return;
+                } else {
+                    println!("Invalid input. Please enter 'y' for yes or 'n' for no.");
+                }
             }
 
             if tasks.remove(name).is_some() {
