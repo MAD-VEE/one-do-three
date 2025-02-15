@@ -68,6 +68,7 @@ struct UserStore {
     salt: Vec<u8>,
     iv: Vec<u8>,
     reset_tokens: HashMap<String, PasswordResetToken>,
+    reset_attempts: HashMap<String, ResetAttemptTracker>, // Tracks reset attempts by email
 }
 
 // Custom error type for task operations
@@ -716,6 +717,7 @@ fn create_user_store() -> UserStore {
         salt: generate_random_salt(),
         iv: generate_random_iv(),
         reset_tokens: HashMap::new(),
+        reset_attempts: HashMap::new(),
     }
 }
 
