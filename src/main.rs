@@ -3,12 +3,14 @@ use aes::Aes256;
 use block_modes::block_padding::Pkcs7;
 use block_modes::{BlockMode, Cbc};
 use clap::{Arg, Command};
+use env_logger::{Builder, WriteStyle};
 use hmac::Hmac;
 use itertools::Itertools;
 use keyring::Entry;
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
+use log::{error, info, warn, LevelFilter};
 use pbkdf2::pbkdf2;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -16,6 +18,7 @@ use rpassword::read_password;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
 use std::process;
@@ -915,6 +918,33 @@ fn format_timestamp(timestamp: u64) -> String {
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
 }
+
+// Initialize the logging system with both file and console output
+fn initialize_logging() -> Result<(), Box<dyn std::error::Error>> {
+    // Create or append to log file with proper permissions
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("application.log")?;
+
+    // Configure the logging system
+    Builder::new()
+        // Set default log level
+        .filter_level(LevelFilter::Info)
+        // Enable timestamps
+        .format_timestamp_secs()
+        // Enable module path in logs
+        .format_module_path(true)
+        // Set colored output for console
+        .write_style(WriteStyle::Auto)
+        // Write to both file and stderr
+        .target(env_logger::Target::Pipe(Box::new(file)))
+        .init();
+
+    info!("Logging system initialized");
+    Ok(())
+}
+
 
 fn main() {
     // Load user store
