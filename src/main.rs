@@ -1210,6 +1210,32 @@ fn main() {
         Some(("reset-password", sub_matches)) => {
             let email = sub_matches.get_one::<String>("email").unwrap();
 
+            // Clean up expired data first
+            cleanup_expired_data(&mut store);
+
+            // Check rate limiting for reset attempts
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let tracker = store
+                .reset_attempts
+                .entry(email.to_string())
+                .or_insert_with(ResetAttemptTracker::new);
+
+            // If this is a new attempt window (>24 hours since first attempt)
+            if current_time - tracker.first_attempt > 24 * 60 * 60 {
+                tracker.attempts = 0;
+                tracker.first_attempt = current_time;
+            }
+
+            // Check if too many attempts
+            if tracker.attempts >= 5 && current_time - tracker.last_attempt < 60 * 60 {
+                println!("Too many reset attempts. Please try again in an hour.");
+                return;
+            }
+
             // Find user by email
             if let Some(user) = store
                 .users
@@ -1218,30 +1244,55 @@ fn main() {
             {
                 match user.request_password_reset() {
                     Ok(reset_token) => {
-                        // Store the token in UserStore
+                        // Store the token
                         store
                             .reset_tokens
                             .insert(reset_token.token.clone(), reset_token.clone());
 
-                        // Save the updated store
+                        // Update attempt tracker
+                        tracker.attempts += 1;
+                        tracker.last_attempt = current_time;
+
+                        // Save the updated store with error handling
                         match save_user_store(
                             &store,
                             &derive_key_from_passphrase("master_key", &store.salt),
                         ) {
-                            Ok(_) => match send_reset_email(&reset_token) {
-                                Ok(_) => {
-                                    println!("Password reset email sent. Please check your inbox.")
+                            Ok(_) => {
+                                match send_reset_email(&reset_token) {
+                                    Ok(_) => {
+                                        println!(
+                                            "Password reset email sent. Please check your inbox."
+                                        );
+                                    }
+                                    Err(e) => {
+                                        // Remove token if email fails
+                                        store.reset_tokens.remove(&reset_token.token);
+                                        println!("Failed to send reset email: {}", e);
+                                    }
                                 }
-                                Err(e) => println!("Failed to send reset email: {}", e),
-                            },
-                            Err(e) => println!("Failed to save reset token: {}", e),
+                            }
+                            Err(e) => {
+                                println!("Failed to save reset token: {}", e);
+                                store.reset_tokens.remove(&reset_token.token);
+                            }
                         }
                     }
                     Err(e) => println!("Failed to create reset token: {}", e),
                 }
             } else {
-                // Don't reveal if email exists or not for security
+                // Don't reveal if email exists, but still update attempt tracker
+                tracker.attempts += 1;
+                tracker.last_attempt = current_time;
                 println!("If this email is registered, you will receive a reset link shortly.");
+            }
+
+            // Save attempt tracker
+            if let Err(e) = save_user_store(
+                &store,
+                &derive_key_from_passphrase("master_key", &store.salt),
+            ) {
+                println!("Warning: Failed to save attempt tracking: {}", e);
             }
         }
         // Handle confirm-reset command
