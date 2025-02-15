@@ -631,6 +631,12 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
 
         // Verify cached credentials
         if verify_user_credentials(&cached_username, &cached_password, store) {
+            log_auth_event(
+                "login",
+                &cached_username,
+                true,
+                Some("using cached credentials"),
+            );
             println!("Using cached credentials (type 'logout' for a new session).");
             return Some((cached_username, cached_password));
         }
