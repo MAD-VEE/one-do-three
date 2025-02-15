@@ -547,6 +547,75 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
     }
 }
 
+fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
+    println!("\n=== User Registration ===");
+
+    // Get username with validation
+    let username = loop {
+        println!("\nEnter desired username:");
+        let username = read_line()?;
+
+        if username.trim().is_empty() {
+            println!("Username cannot be empty.");
+            continue;
+        }
+
+        if store.users.contains_key(&username) {
+            println!("Username already exists. Please choose a different one.");
+            continue;
+        }
+
+        break username;
+    };
+
+    // Get email with validation
+    let email = loop {
+        println!("\nEnter your email address:");
+        let email = read_line()?;
+
+        if !is_valid_email(&email) {
+            println!("Invalid email format. Please enter a valid email address.");
+            continue;
+        }
+
+        if store.users.values().any(|u| u.email == email) {
+            println!("Email already registered. Please use a different email.");
+            continue;
+        }
+
+        break email;
+    };
+
+    // Get password with validation
+    let password = loop {
+        println!("\nEnter password (min 8 chars, must include uppercase, lowercase, number, and special char):");
+        let password = read_password()?;
+
+        match validate_password(&password) {
+            Ok(_) => break password,
+            Err(e) => {
+                println!("Password validation failed: {:?}", e);
+                println!("Please try again.");
+            }
+        }
+    };
+
+    // Confirm password
+    loop {
+        println!("\nConfirm password:");
+        let confirm = read_password()?;
+
+        if confirm == password {
+            break;
+        }
+
+        println!("Passwords don't match. Please try again.");
+    }
+
+    // Add the new user
+    handle_user_creation(store, username, email, password)
+}
+
 // Function to encrypt data using AES-256-CBC
 fn encrypt_data(data: &str, encryption_key: &[u8], iv: &[u8]) -> Vec<u8> {
     let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap();
