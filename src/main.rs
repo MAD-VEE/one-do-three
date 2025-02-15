@@ -1191,6 +1191,15 @@ fn main() {
 
             let name = sub_matches.get_one::<String>("name").unwrap();
 
+            // Check if task exists
+            if !tasks.contains_key(name) {
+                println!(
+                    "Task '{}' not found. Use 'list' command to see available tasks.",
+                    name
+                );
+                return;
+            }
+
             if let Some(task) = tasks.get_mut(name) {
                 if let Some(description) = sub_matches.get_one::<String>("description") {
                     task.description = description.clone();
@@ -1220,6 +1229,26 @@ fn main() {
             }
 
             let name = sub_matches.get_one::<String>("name").unwrap();
+
+            // Check if task exists
+            if !tasks.contains_key(name) {
+                println!(
+                    "Task '{}' not found. Use 'list' command to see available tasks.",
+                    name
+                );
+                return;
+            }
+
+            // Add this to your delete task command:
+            println!(
+                "Are you sure you want to delete task '{}'? Type 'YES' to confirm:",
+                name
+            );
+            let confirmation = read_line().unwrap();
+            if confirmation.trim() != "YES" {
+                println!("Task deletion cancelled.");
+                return;
+            }
 
             if tasks.remove(name).is_some() {
                 // Add error handling to save operation
