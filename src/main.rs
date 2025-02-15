@@ -898,6 +898,16 @@ fn cleanup_expired_data(store: &mut UserStore) {
         .retain(|_, tracker| current_time - tracker.first_attempt < 24 * 60 * 60);
 }
 
+// Function to validate email format
+fn is_valid_email(email: &str) -> bool {
+    // Basic email validation
+    email.contains('@')
+        && email.contains('.')
+        && !email.contains(' ')
+        && email.chars().filter(|&c| c == '@').count() == 1
+        && email.len() >= 5
+}
+
 fn main() {
     // Load user store
     let mut store = load_user_store(&derive_key_from_passphrase(
