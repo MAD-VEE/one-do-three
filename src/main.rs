@@ -1047,6 +1047,16 @@ fn main() {
                         .required(true),
                 ),
         )
+        .subcommand(
+            Command::new("delete-account")
+                .about("Delete user account")
+                .arg(
+                    Arg::new("confirm")
+                        .long("confirm")
+                        .help("Type 'DELETE' to confirm account deletion")
+                        .required(true),
+                ),
+        )
         .subcommand(Command::new("logout").about("Logout and clear cached password"))
         .get_matches();
 
