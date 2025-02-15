@@ -575,6 +575,7 @@ fn save_tasks_to_file(
 
 // This function handles failed login attempts and implements the 30-second delay
 fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
+    log_auth_event("login_attempt", &user.username, false, Some("failed login attempt"));
     // Get current time since UNIX epoch
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
