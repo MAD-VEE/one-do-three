@@ -575,6 +575,7 @@ fn save_tasks_to_file(
 
 // This function handles failed login attempts and implements the 30-second delay
 fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
+    // Log the failed login attempt
     log_auth_event("login_attempt", &user.username, false, Some("failed login attempt"));
     // Get current time since UNIX epoch
     let current_time = SystemTime::now()
@@ -1213,6 +1214,8 @@ fn main() {
                 println!("A task with this name already exists. Choose a different name or delete the existing task first.");
                 return;
             }
+
+            log_data_operation("add_task", &username, name, true, None);
 
             let new_task = Task {
                 name: name.to_string(),
