@@ -953,7 +953,65 @@ fn format_sensitive(text: &str) -> String {
     format!("{}***{}", &text[0..2], &text[text.len() - 2..])
 }
 
+// Add structured logging for authentication events
+fn log_auth_event(event_type: &str, username: &str, success: bool, details: Option<&str>) {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    if success {
+        info!(
+            "Auth event: type={}, user={}, success=true, timestamp={}, details={:?}",
+            event_type,
+            format_sensitive(username),
+            timestamp,
+            details
+        );
+    } else {
+        warn!(
+            "Auth event: type={}, user={}, success=false, timestamp={}, details={:?}",
+            event_type,
+            format_sensitive(username),
+            timestamp,
+            details
+        );
+    }
+}
+
+// Add structured logging for data operations
+fn log_data_operation(
+    operation: &str,
+    user: &str,
+    resource: &str,
+    success: bool,
+    details: Option<&str>,
+) {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    if success {
+        info!(
+            "Data operation: op={}, user={}, resource={}, success=true, timestamp={}, details={:?}",
+            operation,
+            format_sensitive(user),
+            resource,
+            timestamp,
+            details
+        );
+    } else {
+        error!(
+            "Data operation: op={}, user={}, resource={}, success=false, timestamp={}, details={:?}",
+            operation,
+            format_sensitive(user),
+            resource,
+            timestamp,
+            details
+        );
+    }
+}
+
 fn main() {
+    // Initialize logging system
+    if let Err(e) = initialize_logging() {
+        eprintln!("Failed to initialize logging: {}", e);
+        process::exit(1);
+    }
+
     // Load user store
     let mut store = load_user_store(&derive_key_from_passphrase(
         "master_key",
