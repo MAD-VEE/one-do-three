@@ -107,7 +107,7 @@ struct PasswordResetToken {
 }
 
 // Structure to track password reset attempts to prevent abuse
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct ResetAttemptTracker {
     attempts: u32,
     first_attempt: u64,
@@ -346,31 +346,58 @@ fn validate_password(password: &str) -> Result<(), PasswordError> {
 
 // Function to send password reset email
 fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> {
+    // Configure email settings from environment or config file
+    let smtp_host =
+        std::env::var("SMTP_HOST").unwrap_or_else(|_| "smtp.yourdomain.com".to_string());
+    let smtp_username =
+        std::env::var("SMTP_USERNAME").unwrap_or_else(|_| "smtp_username".to_string());
+    let smtp_password =
+        std::env::var("SMTP_PASSWORD").unwrap_or_else(|_| "smtp_password".to_string());
+
+    // Create email message with better formatting
+    let email_body = format!(
+        "Hello,\n\n\
+        A password reset was requested for your account.\n\n\
+        Your password reset token is: {}\n\n\
+        This token will expire in 30 minutes.\n\n\
+        If you did not request this reset, please ignore this email.\n\n\
+        Best regards,\n\
+        Your Application Team",
+        reset_token.token
+    );
+
     let email = Message::builder()
-        .from("noreply@yourdomain.com".parse().unwrap())
-        .to(reset_token.user_email.parse().unwrap())
+        .from(
+            "noreply@yourdomain.com"
+                .parse()
+                .map_err(|e| format!("Invalid from address: {}", e))?,
+        )
+        .to(reset_token
+            .user_email
+            .parse()
+            .map_err(|e| format!("Invalid to address: {}", e))?)
         .subject("Password Reset Request")
         .header(ContentType::TEXT_PLAIN)
-        .body(format!(
-            "Your password reset token is: {}\n\nThis token will expire in 30 minutes.",
-            reset_token.token
-        ))
+        .body(email_body)
         .map_err(|e| format!("Failed to create email: {}", e))?;
 
-    // Create SMTP transport
-    let creds = Credentials::new("smtp_username".to_string(), "smtp_password".to_string());
+    // Create SMTP transport with proper error handling
+    let creds = Credentials::new(smtp_username, smtp_password);
 
-    let mailer = SmtpTransport::relay("smtp.yourdomain.com")
-        .unwrap()
+    let mailer = SmtpTransport::relay(&smtp_host)
+        .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
         .credentials(creds)
+        .timeout(Some(std::time::Duration::from_secs(10))) // Add timeout
         .build();
 
-    // Send the email
-    mailer
-        .send(&email)
-        .map_err(|e| format!("Failed to send email: {}", e))?;
-
-    Ok(())
+    // Send email with detailed error handling
+    match mailer.send(&email) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!(
+            "Failed to send email: {}. Please check your SMTP configuration.",
+            e
+        )),
+    }
 }
 
 // Implement conversion from io::Error to TaskError
