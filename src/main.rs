@@ -547,6 +547,7 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
     }
 }
 
+// Function to handle interactive user registration
 fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
     println!("\n=== User Registration ===");
 
@@ -614,6 +615,17 @@ fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
 
     // Add the new user
     handle_user_creation(store, username, email, password)
+}
+
+// Function to show initial options when starting the program
+fn show_initial_options() {
+    println!("\n=== Welcome to Task Manager ===");
+    println!("1. Login");
+    println!("2. Register new account");
+    println!("3. Forgot password");
+    println!("4. Help");
+    println!("5. Exit");
+    println!("\nEnter your choice (1-5):");
 }
 
 // Function to encrypt data using AES-256-CBC
