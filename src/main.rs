@@ -105,6 +105,14 @@ struct PasswordResetToken {
     username: String, // Adding username to track which user the token belongs to
 }
 
+// Structure to track password reset attempts to prevent abuse
+#[derive(Debug)]
+struct ResetAttemptTracker {
+    attempts: u32,
+    first_attempt: u64,
+    last_attempt: u64,
+}
+
 // Implementation block for UserStore to handle user management operations
 impl UserStore {
     // Function to add a new user to the store
@@ -299,6 +307,16 @@ impl User {
         self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
 
         Ok(())
+    }
+}
+
+impl ResetAttemptTracker {
+    fn new() -> Self {
+        Self {
+            attempts: 0,
+            first_attempt: 0,
+            last_attempt: 0,
+        }
     }
 }
 
