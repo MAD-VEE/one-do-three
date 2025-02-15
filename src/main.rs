@@ -945,6 +945,13 @@ fn initialize_logging() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// Helper function to format sensitive data for logging
+fn format_sensitive(text: &str) -> String {
+    if text.len() <= 4 {
+        return "*".repeat(text.len());
+    }
+    format!("{}***{}", &text[0..2], &text[text.len() - 2..])
+}
 
 fn main() {
     // Load user store
