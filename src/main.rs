@@ -1101,6 +1101,12 @@ fn main() {
             let description = sub_matches.get_one::<String>("description").unwrap();
             let priority = sub_matches.get_one::<String>("priority").unwrap();
 
+            // Check if task with the same name already exists
+            if tasks.contains_key(name) {
+                println!("A task with this name already exists. Choose a different name or delete the existing task first.");
+                return;
+            }
+
             let new_task = Task {
                 name: name.to_string(),
                 description: description.to_string(),
