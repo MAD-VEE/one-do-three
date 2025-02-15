@@ -908,6 +908,14 @@ fn is_valid_email(email: &str) -> bool {
         && email.len() >= 5
 }
 
+// Function to format timestamp as readable date
+fn format_timestamp(timestamp: u64) -> String {
+    chrono::NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
+        .unwrap_or_default()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
 fn main() {
     // Load user store
     let mut store = load_user_store(&derive_key_from_passphrase(
