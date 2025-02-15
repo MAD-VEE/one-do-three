@@ -880,6 +880,24 @@ fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore
     false
 }
 
+// Function to clean up expired tokens and reset attempts
+fn cleanup_expired_data(store: &mut UserStore) {
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Remove expired tokens
+    store
+        .reset_tokens
+        .retain(|_, token| current_time <= token.expires_at);
+
+    // Clean up old reset attempts (older than 24 hours)
+    store
+        .reset_attempts
+        .retain(|_, tracker| current_time - tracker.first_attempt < 24 * 60 * 60);
+}
+
 fn main() {
     // Load user store
     let mut store = load_user_store(&derive_key_from_passphrase(
