@@ -1076,21 +1076,7 @@ fn main() {
     // Set up CLI command structure using clap
     let matches = Command::new("one-do-three")
         .about("A simple task management CLI")
-        .subcommand(
-            Command::new("add")
-                .about("Add a new task")
-                .arg(Arg::new("name").help("The name of the task").required(true))
-                .arg(
-                    Arg::new("description")
-                        .help("The task description")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("priority")
-                        .help("The priority of the task")
-                        .required(true),
-                ),
-        )
+        .subcommand(Command::new("add").about("Add a new task"))
         .subcommand(
             Command::new("list")
                 .about("List all tasks")
@@ -1107,51 +1093,9 @@ fn main() {
                         .value_name("SORT"),
                 ),
         )
-        .subcommand(
-            Command::new("edit")
-                .about("Edit an existing task")
-                .arg(
-                    Arg::new("name")
-                        .help("The name of the task to edit")
-                        .required(true),
-                )
-                .arg(
-                    Arg::new("description")
-                        .help("The new description of the task")
-                        .long("description")
-                        .value_parser(clap::value_parser!(String)),
-                )
-                .arg(
-                    Arg::new("priority")
-                        .help("The new priority of the task")
-                        .long("priority")
-                        .value_parser(clap::value_parser!(String)),
-                )
-                .arg(
-                    Arg::new("completed")
-                        .help("Set the task as completed (true/false)")
-                        .long("completed")
-                        .value_parser(clap::value_parser!(String)),
-                ),
-        )
-        .subcommand(
-            Command::new("delete").about("Delete an existing task").arg(
-                Arg::new("name")
-                    .help("The name of the task to delete")
-                    .required(true),
-            ),
-        )
-        .subcommand(
-            Command::new("register")
-                .about("Register a new user")
-                .arg(
-                    Arg::new("username")
-                        .help("Your desired username")
-                        .required(true),
-                )
-                .arg(Arg::new("email").help("Your email address").required(true))
-                .arg(Arg::new("password").help("Your password").required(true)),
-        )
+        .subcommand(Command::new("edit").about("Edit an existing task"))
+        .subcommand(Command::new("delete").about("Delete an existing task"))
+        .subcommand(Command::new("register").about("Register a new user"))
         .subcommand(
             Command::new("profile")
                 .about("View or update user profile")
@@ -1211,6 +1155,7 @@ fn main() {
                         .required(true),
                 ),
         )
+        .subcommand(Command::new("help").about("Show help information"))
         .subcommand(Command::new("logout").about("Logout and clear cached password"))
         .get_matches();
 
@@ -1472,13 +1417,11 @@ fn main() {
                         "Account created: {}",
                         chrono::NaiveDateTime::from_timestamp_opt(user.created_at as i64, 0)
                             .unwrap_or_default()
-                            .unwrap_or_default()
                             .format("%Y-%m-%d %H:%M:%S")
                     );
                     println!(
                         "Last login: {}",
                         chrono::NaiveDateTime::from_timestamp_opt(user.last_login as i64, 0)
-                            .unwrap_or_default()
                             .unwrap_or_default()
                             .format("%Y-%m-%d %H:%M:%S")
                     );
