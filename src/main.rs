@@ -450,6 +450,44 @@ fn generate_random_iv() -> Vec<u8> {
     (0..16).map(|_| rng.gen()).collect()
 }
 
+fn handle_interactive_task_creation() -> Task {
+    // Get task name
+    println!("\nEnter task name:");
+    let name = read_line().unwrap();
+
+    // Get description (optional)
+    println!("\nEnter task description (press Enter to skip):");
+    let description = read_line().unwrap();
+    let description = if description.trim().is_empty() {
+        "No description provided".to_string()
+    } else {
+        description
+    };
+
+    // Get priority with validation
+    println!("\nEnter task priority (High/Medium/Low, press Enter for Medium):");
+    let priority = loop {
+        let input = read_line().unwrap();
+        let priority = if input.trim().is_empty() {
+            "Medium".to_string()
+        } else {
+            input.to_string()
+        };
+
+        match priority.to_lowercase().as_str() {
+            "high" | "medium" | "low" => break priority.to_string(),
+            _ => println!("Invalid priority. Please enter High, Medium, or Low:"),
+        }
+    };
+
+    Task {
+        name,
+        description,
+        priority,
+        completed: false,
+    }
+}
+
 // Function to encrypt data using AES-256-CBC
 fn encrypt_data(data: &str, encryption_key: &[u8], iv: &[u8]) -> Vec<u8> {
     let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap();
