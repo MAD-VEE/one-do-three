@@ -1407,38 +1407,29 @@ fn main() {
             return;
         }
         // Handle add command
-        Some(("add", sub_matches)) => {
+        Some(("add", _)) => {
             // First check passphrase
             if !is_passphrase_correct(user, &password) {
                 println!("Incorrect passphrase. Task not added.");
                 return;
             }
 
-            let name = sub_matches.get_one::<String>("name").unwrap();
-            let description = sub_matches.get_one::<String>("description").unwrap();
-            let priority = sub_matches.get_one::<String>("priority").unwrap();
+            let new_task = handle_interactive_task_creation();
 
             // Check if task with the same name already exists
-            if tasks.contains_key(name) {
+            if tasks.contains_key(&new_task.name) {
                 println!("A task with this name already exists. Choose a different name or delete the existing task first.");
                 return;
             }
 
             // Log the add operation
-            log_data_operation("add_task", &username, name, true, None);
+            log_data_operation("add_task", &username, &new_task.name, true, None);
 
-            let new_task = Task {
-                name: name.to_string(),
-                description: description.to_string(),
-                priority: priority.to_string(),
-                completed: false,
-            };
-
-            tasks.insert(name.clone(), new_task);
+            tasks.insert(new_task.name.clone(), new_task);
 
             // Add error handling to save operation
             match save_tasks_to_file(&tasks, user, &password) {
-                Ok(_) => println!("Task added: {}", name),
+                Ok(_) => println!("Task added successfully!"),
                 Err(e) => println!("Error saving task: {}", e),
             }
         }
@@ -1502,38 +1493,28 @@ fn main() {
             }
         }
         // Handle edit command
-        Some(("edit", sub_matches)) => {
+        Some(("edit", _)) => {
             // First check passphrase
             if !is_passphrase_correct(user, &password) {
                 println!("Error: Incorrect passphrase. Unable to edit task.");
                 return;
             }
 
-            let name = sub_matches.get_one::<String>("name").unwrap();
-
-            // Check if task exists
-            if !tasks.contains_key(name) {
-                println!(
-                    "Task '{}' not found. Use 'list' command to see available tasks.",
-                    name
-                );
-                return;
+            // Show available tasks
+            println!("\nAvailable tasks:");
+            for (name, _) in &tasks {
+                println!("  {}", name);
             }
 
-            if let Some(task) = tasks.get_mut(name) {
-                if let Some(description) = sub_matches.get_one::<String>("description") {
-                    task.description = description.clone();
-                }
-                if let Some(priority) = sub_matches.get_one::<String>("priority") {
-                    task.priority = priority.clone();
-                }
-                if let Some(completed) = sub_matches.get_one::<String>("completed") {
-                    task.completed = completed == "true";
-                }
+            println!("\nEnter the name of the task to edit:");
+            let name = read_line().unwrap();
 
-                // Add error handling to save operation
+            if let Some(task) = tasks.get(&name) {
+                let updated_task = handle_interactive_task_edit(task);
+                tasks.insert(name.clone(), updated_task);
+
                 match save_tasks_to_file(&tasks, user, &password) {
-                    Ok(_) => println!("Task updated: {}", name),
+                    Ok(_) => println!("Task updated successfully!"),
                     Err(e) => println!("Error saving task update: {}", e),
                 }
             } else {
