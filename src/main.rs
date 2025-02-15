@@ -1409,6 +1409,56 @@ fn main() {
                 println!("Task not found: {}", name);
             }
         }
+        // Handle register command
+        Some(("register", sub_matches)) => {
+            let username = sub_matches.get_one::<String>("username").unwrap();
+            let email = sub_matches.get_one::<String>("email").unwrap();
+            let password = sub_matches.get_one::<String>("password").unwrap();
+
+            // Validate email format
+            if !is_valid_email(email) {
+                println!("Invalid email format. Please provide a valid email address.");
+                return;
+            }
+
+            // Validate password strength
+            if let Err(e) = validate_password(password) {
+                println!("Password validation failed: {:?}", e);
+                return;
+            }
+
+            // Check if username already exists
+            if store.users.contains_key(username) {
+                println!("Username already exists. Please choose a different username.");
+                return;
+            }
+
+            // Check if email is already in use
+            if store.users.values().any(|u| u.email == *email) {
+                println!("Email address is already registered.");
+                return;
+            }
+
+            // Add the new user
+            match handle_user_creation(
+                &mut store,
+                username.to_string(),
+                email.to_string(),
+                password.to_string(),
+            ) {
+                Ok(_) => {
+                    println!("User successfully registered! You can now log in.");
+                    // Save the updated user store
+                    if let Err(e) = save_user_store(
+                        &store,
+                        &derive_key_from_passphrase("master_key", &store.salt),
+                    ) {
+                        println!("Warning: Failed to save user data: {}", e);
+                    }
+                }
+                Err(e) => println!("Failed to register user: {}", e),
+            }
+        }
         // Handle profile command
         Some(("profile", sub_matches)) => {
             // Show profile information
