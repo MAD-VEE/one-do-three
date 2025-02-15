@@ -999,6 +999,22 @@ fn main() {
             ),
         )
         .subcommand(
+            Command::new("profile")
+                .about("View or update user profile")
+                .arg(
+                    Arg::new("email")
+                        .long("email")
+                        .help("Update email address")
+                        .value_name("NEW_EMAIL"),
+                )
+                .arg(
+                    Arg::new("show")
+                        .long("show")
+                        .help("Show profile information")
+                        .action(clap::ArgAction::SetTrue),
+                ),
+        )
+        .subcommand(
             Command::new("change-password")
                 .about("Change your password")
                 .arg(
