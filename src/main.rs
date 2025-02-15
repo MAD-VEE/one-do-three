@@ -1207,6 +1207,61 @@ fn main() {
                 println!("Task not found: {}", name);
             }
         }
+        // Handle profile command
+        Some(("profile", sub_matches)) => {
+            // Show profile information
+            if sub_matches.get_flag("show") {
+                if let Some(user) = store.users.get(&username) {
+                    println!("\nUser Profile");
+                    println!("------------");
+                    println!("Username: {}", user.username);
+                    println!("Email: {}", user.email);
+                    println!(
+                        "Account created: {}",
+                        chrono::NaiveDateTime::from_timestamp_opt(user.created_at as i64, 0)
+                            .unwrap_or_default()
+                            .format("%Y-%m-%d %H:%M:%S")
+                    );
+                    println!(
+                        "Last login: {}",
+                        chrono::NaiveDateTime::from_timestamp_opt(user.last_login as i64, 0)
+                            .unwrap_or_default()
+                            .format("%Y-%m-%d %H:%M:%S")
+                    );
+                }
+            }
+
+            // Update email if provided
+            if let Some(new_email) = sub_matches.get_one::<String>("email") {
+                // Validate email format
+                if !new_email.contains('@') || !new_email.contains('.') {
+                    println!("Invalid email format. Please provide a valid email address.");
+                    return;
+                }
+
+                if let Some(user) = store.users.get_mut(&username) {
+                    // Verify current password before making changes
+                    println!("Please enter your password to confirm changes:");
+                    let confirm_password = read_password().unwrap();
+
+                    let password_hash =
+                        hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
+                    if user.password_hash != password_hash {
+                        println!("Incorrect password. Email update cancelled.");
+                        return;
+                    }
+
+                    user.email = new_email.to_string();
+                    match save_user_store(
+                        &store,
+                        &derive_key_from_passphrase("master_key", &store.salt),
+                    ) {
+                        Ok(_) => println!("Email updated successfully."),
+                        Err(e) => println!("Failed to update email: {}", e),
+                    }
+                }
+            }
+        }
         // Handle change-password command
         Some(("change-password", sub_matches)) => {
             let old_password = sub_matches.get_one::<String>("old-password").unwrap();
