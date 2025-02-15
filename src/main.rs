@@ -1426,6 +1426,67 @@ fn main() {
                 println!("Invalid or expired reset token.");
             }
         }
+        // Handle delete-account command
+        Some(("delete-account", sub_matches)) => {
+            let confirmation = sub_matches.get_one::<String>("confirm").unwrap();
+
+            if confirmation != "DELETE" {
+                println!("Account deletion cancelled. You must type 'DELETE' to confirm.");
+                return;
+            }
+
+            println!("Please enter your password to confirm account deletion:");
+            let confirm_password = read_password().unwrap();
+
+            if let Some(user) = store.users.get(&username) {
+                let password_hash =
+                    hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
+                if user.password_hash != password_hash {
+                    println!("Incorrect password. Account deletion cancelled.");
+                    return;
+                }
+
+                // Add final confirmation
+                println!("\nWARNING: This action cannot be undone!");
+                println!("All your tasks and data will be permanently deleted.");
+                println!("Type 'YES' to proceed with account deletion:");
+
+                let final_confirmation = read_line().unwrap();
+                if final_confirmation.trim() != "YES" {
+                    println!("Account deletion cancelled.");
+                    return;
+                }
+
+                // Remove user's task file
+                if let Err(e) = std::fs::remove_file(&user.tasks_file) {
+                    println!("Warning: Failed to remove task file: {}", e);
+                }
+
+                // Remove user from store
+                store.users.remove(&username);
+
+                // Remove any reset tokens for this user
+                store
+                    .reset_tokens
+                    .retain(|_, token| token.username != username);
+
+                // Save the updated store
+                match save_user_store(
+                    &store,
+                    &derive_key_from_passphrase("master_key", &store.salt),
+                ) {
+                    Ok(_) => {
+                        // Clear password cache
+                        let cache = SecurePasswordCache::new();
+                        let _ = cache.clear_cache();
+
+                        println!("Account successfully deleted.");
+                        process::exit(0);
+                    }
+                    Err(e) => println!("Error saving changes: {}", e),
+                }
+            }
+        }
         _ => {
             println!("No valid command provided. Use --help for usage information.");
         }
