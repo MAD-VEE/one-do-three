@@ -576,7 +576,12 @@ fn save_tasks_to_file(
 // This function handles failed login attempts and implements the 30-second delay
 fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
     // Log the failed login attempt
-    log_auth_event("login_attempt", &user.username, false, Some("failed login attempt"));
+    log_auth_event(
+        "login_attempt",
+        &user.username,
+        false,
+        Some("failed login attempt"),
+    );
     // Get current time since UNIX epoch
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -769,7 +774,13 @@ fn handle_user_creation(
     password: String,
 ) -> io::Result<()> {
     // Logging the user creation operation
-    log_data_operation("create_user", &username, "user_store", true, Some("new user registration"));
+    log_data_operation(
+        "create_user",
+        &username,
+        "user_store",
+        true,
+        Some("new user registration"),
+    );
 
     // Attempt to add user to the store and handle the result
     match store.add_user(username.clone(), email, password) {
@@ -780,7 +791,13 @@ fn handle_user_creation(
         }
         Err(e) => {
             // Logging the error if user creation failed
-            log_data_operation("create_user", &username, "user_store", false, Some(&e.to_string()));
+            log_data_operation(
+                "create_user",
+                &username,
+                "user_store",
+                false,
+                Some(&e.to_string()),
+            );
             // If failed, print error message and propagate error
             println!("Failed to create user: {}", e);
             Err(e)
@@ -1125,6 +1142,17 @@ fn main() {
             ),
         )
         .subcommand(
+            Command::new("register")
+                .about("Register a new user")
+                .arg(
+                    Arg::new("username")
+                        .help("Your desired username")
+                        .required(true),
+                )
+                .arg(Arg::new("email").help("Your email address").required(true))
+                .arg(Arg::new("password").help("Your password").required(true)),
+        )
+        .subcommand(
             Command::new("profile")
                 .about("View or update user profile")
                 .arg(
@@ -1215,6 +1243,7 @@ fn main() {
                 return;
             }
 
+            // Log the add operation
             log_data_operation("add_task", &username, name, true, None);
 
             let new_task = Task {
@@ -1393,11 +1422,13 @@ fn main() {
                         "Account created: {}",
                         chrono::NaiveDateTime::from_timestamp_opt(user.created_at as i64, 0)
                             .unwrap_or_default()
+                            .unwrap_or_default()
                             .format("%Y-%m-%d %H:%M:%S")
                     );
                     println!(
                         "Last login: {}",
                         chrono::NaiveDateTime::from_timestamp_opt(user.last_login as i64, 0)
+                            .unwrap_or_default()
                             .unwrap_or_default()
                             .format("%Y-%m-%d %H:%M:%S")
                     );
@@ -1601,6 +1632,9 @@ fn main() {
         }
         // Handle delete-account command
         Some(("delete-account", sub_matches)) => {
+            // Logging the delete-account operation
+            log_data_operation("delete_account", &username, "user_store", true, None);
+
             let confirmation = sub_matches.get_one::<String>("confirm").unwrap();
 
             if confirmation != "DELETE" {
