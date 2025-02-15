@@ -173,7 +173,7 @@ impl SecurePasswordCache {
         }
     }
 
-    // Cache a password in the system keyring
+    // Cache a password in the system keyring and update timestamp
     fn cache_password(&self, username: &str, password: &str) -> io::Result<()> {
         let cached = CachedPassword {
             username: username.to_string(),
@@ -196,7 +196,7 @@ impl SecurePasswordCache {
     fn get_cached_password(&self) -> io::Result<Option<(String, String)>> {
         match self.keyring.get_password() {
             Ok(stored) => {
-                let cached: CachedPassword = serde_json::from_str(&stored)
+                let mut cached: CachedPassword = serde_json::from_str(&stored)
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
                 let current_time = SystemTime::now()
@@ -209,6 +209,14 @@ impl SecurePasswordCache {
                     self.clear_cache()?;
                     Ok(None)
                 } else {
+                    // Reset the timestamp to extend the cache duration
+                    cached.timestamp = current_time;
+                    let updated_cache = serde_json::to_string(&cached)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+                    self.keyring
+                        .set_password(&updated_cache)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
                     Ok(Some((cached.username, cached.password)))
                 }
             }
@@ -1423,6 +1431,17 @@ fn main() {
 
                 tasks.insert(new_task.name.clone(), new_task);
 
+                let cache = SecurePasswordCache::new();
+                let cache = SecurePasswordCache::new();
+                let cache = SecurePasswordCache::new();
+                let cache = SecurePasswordCache::new();
+                let cache = SecurePasswordCache::new();
+                cache
+                    .cache_password(&username, &password)
+                    .unwrap_or_else(|e| {
+                        println!("Warning: Failed to update password cache: {}", e);
+                    });
+
                 // Add error handling to save operation
                 match save_tasks_to_file(&tasks, user, &password) {
                     Ok(_) => println!("Task added successfully!"),
@@ -1440,6 +1459,13 @@ fn main() {
                 // Add error handling to task loading
                 match load_tasks_from_file(user, &password) {
                     Ok(tasks) => {
+                        let cache = SecurePasswordCache::new();
+                        cache
+                            .cache_password(&username, &password)
+                            .unwrap_or_else(|e| {
+                                println!("Warning: Failed to update password cache: {}", e);
+                            });
+
                         if tasks.is_empty() {
                             println!("No tasks available.");
                             return;
@@ -1509,6 +1535,12 @@ fn main() {
                     let updated_task = handle_interactive_task_edit(task);
                     tasks.insert(name.clone(), updated_task);
 
+                    cache
+                        .cache_password(&username, &password)
+                        .unwrap_or_else(|e| {
+                            println!("Warning: Failed to update password cache: {}", e);
+                        });
+
                     match save_tasks_to_file(&tasks, user, &password) {
                         Ok(_) => println!("Task updated successfully!"),
                         Err(e) => println!("Error saving task update: {}", e),
@@ -1558,6 +1590,12 @@ fn main() {
                 }
 
                 if tasks.remove(name).is_some() {
+                    cache
+                        .cache_password(&username, &password)
+                        .unwrap_or_else(|e| {
+                            println!("Warning: Failed to update password cache: {}", e);
+                        });
+
                     // Add error handling to save operation
                     match save_tasks_to_file(&tasks, user, &password) {
                         Ok(_) => println!("Task deleted: {}", name),
@@ -1683,6 +1721,12 @@ fn main() {
                 if let Some(user) = store.users.get_mut(&username) {
                     match user.change_password(old_password, new_password, &store_salt) {
                         Ok(_) => {
+                            cache
+                                .cache_password(&username, new_password)
+                                .unwrap_or_else(|e| {
+                                    println!("Warning: Failed to update password cache: {}", e);
+                                });
+
                             match save_user_store(
                                 &store,
                                 &derive_key_from_passphrase("master_key", &store.salt),
@@ -1815,6 +1859,12 @@ fn main() {
                         // Update password hash
                         user.password_hash =
                             hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+
+                        cache
+                            .cache_password(&user.username, new_password)
+                            .unwrap_or_else(|e| {
+                                println!("Warning: Failed to update password cache: {}", e);
+                            });
 
                         // Remove the used token
                         store.reset_tokens.remove(token);
