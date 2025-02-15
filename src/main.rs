@@ -450,6 +450,7 @@ fn generate_random_iv() -> Vec<u8> {
     (0..16).map(|_| rng.gen()).collect()
 }
 
+// Function to handle interactive task creation
 fn handle_interactive_task_creation() -> Task {
     // Get task name
     println!("\nEnter task name:");
@@ -485,6 +486,64 @@ fn handle_interactive_task_creation() -> Task {
         description,
         priority,
         completed: false,
+    }
+}
+
+// Function to handle interactive task editing
+fn handle_interactive_task_edit(existing_task: &Task) -> Task {
+    println!("\nCurrent task details:");
+    println!("Name: {}", existing_task.name);
+    println!("Description: {}", existing_task.description);
+    println!("Priority: {}", existing_task.priority);
+    println!(
+        "Status: {}",
+        if existing_task.completed {
+            "Completed"
+        } else {
+            "Pending"
+        }
+    );
+
+    println!("\nEnter new description (press Enter to keep current):");
+    let description = read_line().unwrap();
+    let description = if description.trim().is_empty() {
+        existing_task.description.clone()
+    } else {
+        description
+    };
+
+    println!("\nEnter new priority (High/Medium/Low, press Enter to keep current):");
+    let priority = loop {
+        let input = read_line().unwrap();
+        if input.trim().is_empty() {
+            break existing_task.priority.clone();
+        }
+
+        match input.to_lowercase().as_str() {
+            "high" | "medium" | "low" => break input,
+            _ => println!("Invalid priority. Please enter High, Medium, or Low:"),
+        }
+    };
+
+    println!("\nMark as completed? (yes/no/Enter to keep current):");
+    let completed = loop {
+        let input = read_line().unwrap();
+        if input.trim().is_empty() {
+            break existing_task.completed;
+        }
+
+        match input.to_lowercase().as_str() {
+            "yes" | "y" => break true,
+            "no" | "n" => break false,
+            _ => println!("Invalid input. Please enter yes or no:"),
+        }
+    };
+
+    Task {
+        name: existing_task.name.clone(),
+        description,
+        priority,
+        completed,
     }
 }
 
