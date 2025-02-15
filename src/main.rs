@@ -628,6 +628,43 @@ fn show_initial_options() {
     println!("\nEnter your choice (1-5):");
 }
 
+fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
+    loop {
+        show_initial_options();
+
+        match read_line().unwrap().trim() {
+            "1" => {
+                // Existing login logic
+                return authenticate_user(store);
+            }
+            "2" => {
+                if let Err(e) = handle_interactive_registration(store) {
+                    println!("Registration failed: {}", e);
+                }
+                continue;
+            }
+            "3" => {
+                println!("\nEnter your email address:");
+                let email = read_line().unwrap();
+                // Handle password reset logic here
+                continue;
+            }
+            "4" => {
+                show_help_information();
+                continue;
+            }
+            "5" => {
+                println!("Goodbye!");
+                process::exit(0);
+            }
+            _ => {
+                println!("Invalid choice. Please try again.");
+                continue;
+            }
+        }
+    }
+}
+
 // Function to encrypt data using AES-256-CBC
 fn encrypt_data(data: &str, encryption_key: &[u8], iv: &[u8]) -> Vec<u8> {
     let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap();
