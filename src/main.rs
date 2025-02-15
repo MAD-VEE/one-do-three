@@ -766,6 +766,9 @@ fn handle_user_creation(
     email: String,
     password: String,
 ) -> io::Result<()> {
+    // Logging the user creation operation
+    log_data_operation("create_user", &username, "user_store", true, Some("new user registration"));
+
     // Attempt to add user to the store and handle the result
     match store.add_user(username.clone(), email, password) {
         Ok(_) => {
@@ -774,6 +777,8 @@ fn handle_user_creation(
             Ok(())
         }
         Err(e) => {
+            // Logging the error if user creation failed
+            log_data_operation("create_user", &username, "user_store", false, Some(&e.to_string()));
             // If failed, print error message and propagate error
             println!("Failed to create user: {}", e);
             Err(e)
