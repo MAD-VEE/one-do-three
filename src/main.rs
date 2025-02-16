@@ -1123,7 +1123,39 @@ fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore
             );
 
             // Handle failed login attempt for this user
-            handle_failed_login_attempt(user, store)
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            // Check if user has exceeded maximum attempts (3)
+            if user.failed_attempts >= 3 {
+                // Calculate time passed since last attempt
+                let time_since_last_attempt = current_time - user.last_failed_attempt;
+
+                // If less than 30 seconds have passed, prevent login attempt
+                if time_since_last_attempt < 30 {
+                    println!(
+                        "Too many failed attempts. Please wait {} seconds before trying again.",
+                        30 - time_since_last_attempt
+                    );
+                    return false;
+                }
+
+                // Reset failed attempts counter after 30-second timeout
+                user.failed_attempts = 0;
+            }
+
+            // Increment failed attempts and update last attempt timestamp
+            user.failed_attempts += 1;
+            user.last_failed_attempt = current_time;
+
+            // Save the updated user store
+            if let Err(e) = store.save_to_file() {
+                println!("Warning: Failed to save user data: {}", e);
+            }
+
+            false
         }
     } else {
         // Log attempt with non-existent username
