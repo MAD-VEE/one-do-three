@@ -1288,6 +1288,18 @@ fn check_session_timeout(user: &User) -> bool {
     current_time - user.last_activity > SESSION_TIMEOUT
 }
 
+// Command handling loop to check for timeout
+fn handle_command(store: &mut UserStore, user: &mut User, cache: &SecurePasswordCache) -> io::Result<bool> {
+    if check_session_timeout(user) {
+        println!("Session expired due to inactivity. Please log in again.");
+        cache.clear_cache()?;
+        return Ok(false);
+    }
+    
+    update_user_activity(user);
+    Ok(true)
+}
+
 fn main() {
     // Initialize logging system
     if let Err(e) = initialize_logging() {
