@@ -62,6 +62,7 @@ struct User {
     failed_attempts: u32,
     last_failed_attempt: u64,
     tasks_file: String, // Each user gets their own encrypted tasks file
+    last_activity: u64, // Timestamp of last user activity
 }
 
 // Container for all users with encryption metadata for secure storage, and a token store to track active reset tokens
@@ -1267,6 +1268,14 @@ fn log_data_operation(
     }
 }
 
+// Activity tracking function
+fn update_user_activity(user: &mut User) {
+    user.last_activity = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+}
+
 fn main() {
     // Initialize logging system
     if let Err(e) = initialize_logging() {
@@ -1431,11 +1440,6 @@ fn main() {
 
                 tasks.insert(new_task.name.clone(), new_task);
 
-                let cache = SecurePasswordCache::new();
-                let cache = SecurePasswordCache::new();
-                let cache = SecurePasswordCache::new();
-                let cache = SecurePasswordCache::new();
-                let cache = SecurePasswordCache::new();
                 cache
                     .cache_password(&username, &password)
                     .unwrap_or_else(|e| {
