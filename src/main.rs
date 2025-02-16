@@ -1276,6 +1276,18 @@ fn update_user_activity(user: &mut User) {
         .as_secs();
 }
 
+// Inactivity check function
+fn check_session_timeout(user: &User) -> bool {
+    const SESSION_TIMEOUT: u64 = 15 * 60; // 15 minutes in seconds
+    
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+        
+    current_time - user.last_activity > SESSION_TIMEOUT
+}
+
 fn main() {
     // Initialize logging system
     if let Err(e) = initialize_logging() {
