@@ -20,3 +20,5 @@
 [2025-02-15T18:50:27Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-15T18:51:08Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-15T18:51:20Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T13:28:37Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T13:28:57Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-16 14:28:57, details=Some("new user registration")
