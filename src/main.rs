@@ -150,6 +150,7 @@ impl UserStore {
             failed_attempts: 0,       // Initialize login attempt counter
             last_failed_attempt: 0,   // Initialize failed attempt timestamp
             tasks_file: format!("tasks_{}.json", username), // Create unique task file name
+            last_activity: current_time, // Initialize last activity to creation time
         };
 
         // Insert the new user into the HashMap
@@ -197,7 +198,7 @@ impl SecurePasswordCache {
     fn get_cached_password(&self) -> io::Result<Option<(String, String)>> {
         match self.keyring.get_password() {
             Ok(stored) => {
-                let mut cached: CachedPassword = serde_json::from_str(&stored)
+                let cached: CachedPassword = serde_json::from_str(&stored)
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
                 let current_time = SystemTime::now()
@@ -205,19 +206,12 @@ impl SecurePasswordCache {
                     .unwrap()
                     .as_secs();
 
+                // Strict 15-minute timeout check
                 if current_time - cached.timestamp > 15 * 60 {
-                    // Password expired, clear it
                     self.clear_cache()?;
                     Ok(None)
                 } else {
-                    // Reset the timestamp to extend the cache duration
-                    cached.timestamp = current_time;
-                    let updated_cache = serde_json::to_string(&cached)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-                    self.keyring
-                        .set_password(&updated_cache)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
+                    // Do NOT update timestamp here - let it expire naturally
                     Ok(Some((cached.username, cached.password)))
                 }
             }
@@ -1279,23 +1273,27 @@ fn update_user_activity(user: &mut User) {
 // Inactivity check function
 fn check_session_timeout(user: &User) -> bool {
     const SESSION_TIMEOUT: u64 = 15 * 60; // 15 minutes in seconds
-    
+
     let current_time = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs();
-        
+
     current_time - user.last_activity > SESSION_TIMEOUT
 }
 
 // Command handling loop to check for timeout
-fn handle_command(store: &mut UserStore, user: &mut User, cache: &SecurePasswordCache) -> io::Result<bool> {
+fn handle_command(
+    store: &mut UserStore,
+    user: &mut User,
+    cache: &SecurePasswordCache,
+) -> io::Result<bool> {
     if check_session_timeout(user) {
         println!("Session expired due to inactivity. Please log in again.");
         cache.clear_cache()?;
         return Ok(false);
     }
-    
+
     update_user_activity(user);
     Ok(true)
 }
@@ -1425,6 +1423,18 @@ fn main() {
             .subcommand(Command::new("logout").about("Logout and clear cached password"))
             .get_matches();
 
+        // Before handling any command, check for session timeout
+        let cache = SecurePasswordCache::new();
+        if let Ok(Some((cached_username, _))) = cache.get_cached_password() {
+            if cached_username == username {
+                // If session has expired, force logout and restart authentication
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+            }
+        }
+
         // Handle different subcommands
         match matches.subcommand() {
             // Handle logout comomand
@@ -1441,10 +1451,16 @@ fn main() {
             // handle help command
             Some(("help", _)) => {
                 show_help_information();
-                return;
+                continue;
             }
             // Handle add command
             Some(("add", _)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 // First check passphrase
                 if !is_passphrase_correct(user, &password) {
                     println!("Incorrect passphrase. Task not added.");
@@ -1478,6 +1494,12 @@ fn main() {
             }
             // Handle list command
             Some(("list", sub_matches)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 // First check passphrase
                 if !is_passphrase_correct(user, &password) {
                     println!("Error: Incorrect passphrase. Unable to list tasks.");
@@ -1544,6 +1566,12 @@ fn main() {
             }
             // Handle edit command
             Some(("edit", _)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 // First check passphrase
                 if !is_passphrase_correct(user, &password) {
                     println!("Error: Incorrect passphrase. Unable to edit task.");
@@ -1579,6 +1607,12 @@ fn main() {
             }
             // Handle delete command
             Some(("delete", sub_matches)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 // First check passphrase
                 if !is_passphrase_correct(user, &password) {
                     println!("Error: Incorrect passphrase. Unable to delete task.");
@@ -1685,6 +1719,12 @@ fn main() {
             }
             // Handle profile command
             Some(("profile", sub_matches)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 // Show profile information
                 if sub_matches.get_flag("show") {
                     if let Some(user) = store.users.get(&username) {
@@ -1740,6 +1780,12 @@ fn main() {
             }
             // Handle change-password command
             Some(("change-password", sub_matches)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 let old_password = sub_matches.get_one::<String>("old-password").unwrap();
                 let new_password = sub_matches.get_one::<String>("new-password").unwrap();
 
@@ -1916,6 +1962,12 @@ fn main() {
             }
             // Handle delete-account command
             Some(("delete-account", sub_matches)) => {
+                // Check for session timeout before executing command
+                if let Ok(None) = cache.get_cached_password() {
+                    println!("Session expired due to inactivity. Please log in again.");
+                    continue;
+                }
+
                 // Logging the delete-account operation
                 log_data_operation("delete_account", &username, "user_store", true, None);
 
