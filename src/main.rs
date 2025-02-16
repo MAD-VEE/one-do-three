@@ -637,6 +637,7 @@ fn show_help_information() {
     println!("  add      - Add a new task");
     println!("  list     - List all tasks");
     println!("  edit     - Edit an existing task");
+    println!("  profile  - View or update profile");
     println!("  delete   - Delete a task");
     println!("  register - Create a new account");
     println!("  logout   - Log out of current session");
@@ -1312,8 +1313,9 @@ fn main() {
     ))
     .expect("Failed to load user store");
 
-    loop {
-        // Authenticate user and get credentials
+    // Main program loop
+    'main: loop {
+        // Show initial options, authenticate user and get credentials
         let (username, password) = match main_auth_flow(&mut store) {
             Some(credentials) => credentials,
             None => {
@@ -1322,336 +1324,211 @@ fn main() {
             }
         };
 
-        // Get the authenticated user
-        let user = store
-            .users
-            .get(&username)
-            .expect("User not found after authentication");
+        // Get user's task file path before entering command loop
+        let tasks_file = {
+            let user = store
+                .users
+                .get(&username)
+                .expect("User not found after authentication");
+            user.tasks_file.clone()
+        };
 
         // Load tasks from user-specific encrypted file with error handling
-        let mut tasks: HashMap<String, Task> = match load_tasks_from_file(user, &password) {
-            Ok(tasks) => tasks,
-            Err(e) => {
-                println!("Error loading tasks: {}", e);
-                process::exit(1);
+        let mut tasks: HashMap<String, Task> = {
+            let user = store
+                .users
+                .get(&username)
+                .expect("User not found after authentication");
+            match load_tasks_from_file(user, &password) {
+                Ok(tasks) => tasks,
+                Err(e) => {
+                    println!("Error loading tasks: {}", e);
+                    process::exit(1);
+                }
             }
         };
 
-        // Set up CLI command structure using clap
-        let matches = Command::new("one-do-three")
-            .about("A simple task management CLI")
-            .subcommand(Command::new("add").about("Add a new task"))
-            .subcommand(
-                Command::new("list")
-                    .about("List all tasks")
-                    .arg(
-                        Arg::new("filter")
-                            .long("filter")
-                            .help("Filter tasks by priority or completion status")
-                            .value_name("FILTER"),
-                    )
-                    .arg(
-                        Arg::new("sort")
-                            .long("sort")
-                            .help("Sort tasks by priority, completion status, or name")
-                            .value_name("SORT"),
-                    ),
-            )
-            .subcommand(Command::new("edit").about("Edit an existing task"))
-            .subcommand(Command::new("delete").about("Delete an existing task"))
-            .subcommand(Command::new("register").about("Register a new user"))
-            .subcommand(
-                Command::new("profile")
-                    .about("View or update user profile")
-                    .arg(
-                        Arg::new("email")
-                            .long("email")
-                            .help("Update email address")
-                            .value_name("NEW_EMAIL"),
-                    )
-                    .arg(
-                        Arg::new("show")
-                            .long("show")
-                            .help("Show profile information")
-                            .action(clap::ArgAction::SetTrue),
-                    ),
-            )
-            .subcommand(
-                Command::new("change-password")
-                    .about("Change your password")
-                    .arg(
-                        Arg::new("old-password")
-                            .help("Your current password")
-                            .required(true),
-                    )
-                    .arg(
-                        Arg::new("new-password")
-                            .help("Your new password")
-                            .required(true),
-                    ),
-            )
-            .subcommand(
-                Command::new("reset-password")
-                    .about("Request a password reset")
-                    .arg(Arg::new("email").help("Your email address").required(true)),
-            )
-            .subcommand(
-                Command::new("confirm-reset")
-                    .about("Confirm password reset with token")
-                    .arg(
-                        Arg::new("token")
-                            .help("Reset token from email")
-                            .required(true),
-                    )
-                    .arg(
-                        Arg::new("new-password")
-                            .help("Your new password")
-                            .required(true),
-                    ),
-            )
-            .subcommand(
-                Command::new("delete-account")
-                    .about("Delete user account")
-                    .arg(
-                        Arg::new("confirm")
-                            .long("confirm")
-                            .help("Type 'DELETE' to confirm account deletion")
-                            .required(true),
-                    ),
-            )
-            .subcommand(Command::new("help").about("Show help information"))
-            .subcommand(Command::new("logout").about("Logout and clear cached password"))
-            .get_matches();
-
-        // Before handling any command, check for session timeout
         let cache = SecurePasswordCache::new();
-        if let Ok(Some((cached_username, _))) = cache.get_cached_password() {
-            if cached_username == username {
-                // If session has expired, force logout and restart authentication
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
+        println!(
+            "\nWelcome, {}! Type 'help' to see available commands.",
+            username
+        );
+
+        // Command execution loop - stays here until logout or timeout
+        'command: loop {
+            // Check for session timeout
+            if let Ok(Some((cached_username, _))) = cache.get_cached_password() {
+                if cached_username == username {
+                    // If session has expired, force logout and restart authentication
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("\nSession expired due to 15 minutes of inactivity. Please log in again.");
+                        continue 'main;
+                    }
+                } else {
+                    // Username mismatch in cache
+                    println!("\nSession error: User mismatch. Please log in again.");
+                    continue 'main;
+                }
+            } else {
+                // No cached credentials
+                println!("\nSession expired due to 15 minutes of inactivity. Please log in again.");
+                continue 'main;
+            }
+
+            // Getting fresh user reference and load tasks at the start of each command loop
+            let user = match store.users.get(&username) {
+                Some(user) => user,
+                None => {
+                    println!("User not found. Please log in again.");
+                    continue 'main;
+                }
+            };
+
+            // Loading tasks here, so they're fresh for each command
+            let mut tasks: HashMap<String, Task> = match load_tasks_from_file(user, &password) {
+                Ok(tasks) => tasks,
+                Err(e) => {
+                    println!("Error loading tasks: {}", e);
                     continue;
                 }
-            }
-        }
+            };
 
-        // Handle different subcommands
-        match matches.subcommand() {
-            // Handle logout comomand
-            Some(("logout", _)) => {
-                // Handle logout command
-                let cache = SecurePasswordCache::new();
-                if let Err(e) = cache.clear_cache() {
-                    println!("Warning: Failed to clear password cache: {}", e);
-                } else {
-                    println!("Successfully logged out. Password cache cleared.");
-                }
-                process::exit(0);
-            }
-            // handle help command
-            Some(("help", _)) => {
-                show_help_information();
+            println!("\nEnter command (or 'help' for available commands):");
+
+            let input = read_line().unwrap();
+            let args = input.split_whitespace().collect::<Vec<_>>();
+            if args.is_empty() {
                 continue;
             }
-            // Handle add command
-            Some(("add", _)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
-                    continue;
-                }
 
-                // First check passphrase
-                if !is_passphrase_correct(user, &password) {
-                    println!("Incorrect passphrase. Task not added.");
-                    return;
-                }
+            // Set up CLI command structure using clap
+            let matches = Command::new("one-do-three")
+                .about("A simple task management CLI")
+                .subcommand(Command::new("add").about("Add a new task"))
+                .subcommand(
+                    Command::new("list")
+                        .about("List all tasks")
+                        .arg(
+                            Arg::new("filter")
+                                .long("filter")
+                                .help("Filter tasks by priority or completion status")
+                                .value_name("FILTER"),
+                        )
+                        .arg(
+                            Arg::new("sort")
+                                .long("sort")
+                                .help("Sort tasks by priority, completion status, or name")
+                                .value_name("SORT"),
+                        ),
+                )
+                .subcommand(Command::new("edit").about("Edit an existing task"))
+                .subcommand(Command::new("delete").about("Delete an existing task"))
+                .subcommand(Command::new("register").about("Register a new user"))
+                .subcommand(
+                    Command::new("profile")
+                        .about("View or update user profile")
+                        .arg(
+                            Arg::new("email")
+                                .long("email")
+                                .help("Update email address")
+                                .value_name("NEW_EMAIL"),
+                        )
+                        .arg(
+                            Arg::new("show")
+                                .long("show")
+                                .help("Show profile information")
+                                .action(clap::ArgAction::SetTrue),
+                        ),
+                )
+                .subcommand(
+                    Command::new("change-password")
+                        .about("Change your password")
+                        .arg(
+                            Arg::new("old-password")
+                                .help("Your current password")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("new-password")
+                                .help("Your new password")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
+                    Command::new("reset-password")
+                        .about("Request a password reset")
+                        .arg(Arg::new("email").help("Your email address").required(true)),
+                )
+                .subcommand(
+                    Command::new("confirm-reset")
+                        .about("Confirm password reset with token")
+                        .arg(
+                            Arg::new("token")
+                                .help("Reset token from email")
+                                .required(true),
+                        )
+                        .arg(
+                            Arg::new("new-password")
+                                .help("Your new password")
+                                .required(true),
+                        ),
+                )
+                .subcommand(
+                    Command::new("delete-account")
+                        .about("Delete user account")
+                        .arg(
+                            Arg::new("confirm")
+                                .long("confirm")
+                                .help("Type 'DELETE' to confirm account deletion")
+                                .required(true),
+                        ),
+                )
+                .subcommand(Command::new("help").about("Show help information"))
+                .subcommand(Command::new("logout").about("Logout and clear cached password"))
+                .get_matches_from(args);
 
-                let new_task = handle_interactive_task_creation();
-
-                // Check if task with the same name already exists
-                if tasks.contains_key(&new_task.name) {
-                    println!("A task with this name already exists. Choose a different name or delete the existing task first.");
-                    return;
-                }
-
-                // Log the add operation
-                log_data_operation("add_task", &username, &new_task.name, true, None);
-
-                tasks.insert(new_task.name.clone(), new_task);
-
-                cache
-                    .cache_password(&username, &password)
-                    .unwrap_or_else(|e| {
-                        println!("Warning: Failed to update password cache: {}", e);
-                    });
-
-                // Add error handling to save operation
-                match save_tasks_to_file(&tasks, user, &password) {
-                    Ok(_) => println!("Task added successfully!"),
-                    Err(e) => println!("Error saving task: {}", e),
-                }
-            }
-            // Handle list command
-            Some(("list", sub_matches)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
-                    continue;
-                }
-
-                // First check passphrase
-                if !is_passphrase_correct(user, &password) {
-                    println!("Error: Incorrect passphrase. Unable to list tasks.");
-                    return;
-                }
-
-                // Add error handling to task loading
-                match load_tasks_from_file(user, &password) {
-                    Ok(tasks) => {
-                        let cache = SecurePasswordCache::new();
-                        cache
-                            .cache_password(&username, &password)
-                            .unwrap_or_else(|e| {
-                                println!("Warning: Failed to update password cache: {}", e);
-                            });
-
-                        if tasks.is_empty() {
-                            println!("No tasks available.");
-                            return;
-                        }
-
-                        let filter = sub_matches.get_one::<String>("filter");
-                        let sort = sub_matches.get_one::<String>("sort");
-
-                        let filtered_tasks = tasks
-                            .iter()
-                            .filter(|(_, task)| {
-                                if let Some(f) = filter {
-                                    match f.as_str() {
-                                        "completed" => task.completed,
-                                        "high" => task.priority == "High",
-                                        _ => true,
-                                    }
-                                } else {
-                                    true
-                                }
-                            })
-                            .collect::<HashMap<_, _>>();
-
-                        let sorted_tasks = filtered_tasks
-                            .iter()
-                            .sorted_by(|a, b| {
-                                if let Some(s) = sort {
-                                    match s.as_str() {
-                                        "priority" => a.1.priority.cmp(&b.1.priority),
-                                        "completed" => a.1.completed.cmp(&b.1.completed),
-                                        _ => a.0.cmp(b.0),
-                                    }
-                                } else {
-                                    a.0.cmp(b.0)
-                                }
-                            })
-                            .collect::<Vec<_>>();
-
-                        for (name, task) in sorted_tasks {
-                            println!(
-                                "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
-                                name, task.description, task.priority, task.completed
-                            );
-                        }
+            // Handle different subcommands
+            match matches.subcommand() {
+                // Handle logout comomand
+                Some(("logout", _)) => {
+                    if let Err(e) = cache.clear_cache() {
+                        println!("Warning: Failed to clear password cache: {}", e);
                     }
-                    Err(e) => println!("Error loading tasks: {}", e),
+                    println!("Successfully logged out.");
+                    continue 'main; // Return to main loop for re-authentication
                 }
-            }
-            // Handle edit command
-            Some(("edit", _)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
+                // handle help command
+                Some(("help", _)) => {
+                    show_help_information();
                     continue;
                 }
-
-                // First check passphrase
-                if !is_passphrase_correct(user, &password) {
-                    println!("Error: Incorrect passphrase. Unable to edit task.");
-                    return;
-                }
-
-                // Show available tasks
-                println!("\nAvailable tasks:");
-                for (name, _) in &tasks {
-                    println!("  {}", name);
-                }
-
-                println!("\nEnter the name of the task to edit:");
-                let name = read_line().unwrap();
-
-                if let Some(task) = tasks.get(&name) {
-                    let updated_task = handle_interactive_task_edit(task);
-                    tasks.insert(name.clone(), updated_task);
-
-                    cache
-                        .cache_password(&username, &password)
-                        .unwrap_or_else(|e| {
-                            println!("Warning: Failed to update password cache: {}", e);
-                        });
-
-                    match save_tasks_to_file(&tasks, user, &password) {
-                        Ok(_) => println!("Task updated successfully!"),
-                        Err(e) => println!("Error saving task update: {}", e),
+                // Handle add command
+                Some(("add", _)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
                     }
-                } else {
-                    println!("Task not found: {}", name);
-                }
-            }
-            // Handle delete command
-            Some(("delete", sub_matches)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
-                    continue;
-                }
 
-                // First check passphrase
-                if !is_passphrase_correct(user, &password) {
-                    println!("Error: Incorrect passphrase. Unable to delete task.");
-                    return;
-                }
-
-                let name = sub_matches.get_one::<String>("name").unwrap();
-
-                // Check if task exists
-                if !tasks.contains_key(name) {
-                    println!(
-                        "Task '{}' not found. Use 'list' command to see available tasks.",
-                        name
-                    );
-                    return;
-                }
-
-                // Asking for deletion confirmation
-                loop {
-                    print!("Are you sure you want to delete task '{}'? (y/n): ", name);
-                    io::stdout().flush().unwrap(); // Ensure the prompt is displayed before input
-
-                    let mut confirmation = String::new();
-                    io::stdin().read_line(&mut confirmation).unwrap();
-                    let confirmation = confirmation.trim().to_lowercase();
-
-                    if confirmation.is_empty() || confirmation == "y" {
-                        println!("Task '{}' deleted.", name);
-                        // Add the actual deletion logic here
-                        break;
-                    } else if confirmation == "n" {
-                        println!("Task deletion cancelled.");
+                    // First check passphrase
+                    if !is_passphrase_correct(user, &password) {
+                        println!("Incorrect passphrase. Task not added.");
                         return;
-                    } else {
-                        println!("Invalid input. Please enter 'y' for yes or 'n' for no.");
                     }
-                }
 
-                if tasks.remove(name).is_some() {
+                    let new_task = handle_interactive_task_creation();
+
+                    // Check if task with the same name already exists
+                    if tasks.contains_key(&new_task.name) {
+                        println!("A task with this name already exists. Choose a different name or delete the existing task first.");
+                        return;
+                    }
+
+                    // Log the add operation
+                    log_data_operation("add_task", &username, &new_task.name, true, None);
+
+                    tasks.insert(new_task.name.clone(), new_task);
+
                     cache
                         .cache_password(&username, &password)
                         .unwrap_or_else(|e| {
@@ -1660,288 +1537,540 @@ fn main() {
 
                     // Add error handling to save operation
                     match save_tasks_to_file(&tasks, user, &password) {
-                        Ok(_) => println!("Task deleted: {}", name),
-                        Err(e) => println!("Error saving after deletion: {}", e),
-                    }
-                } else {
-                    println!("Task not found: {}", name);
-                }
-            }
-            // Handle register command
-            Some(("register", sub_matches)) => {
-                let username = sub_matches.get_one::<String>("username").unwrap();
-                let email = sub_matches.get_one::<String>("email").unwrap();
-                let password = sub_matches.get_one::<String>("password").unwrap();
-
-                // Validate email format
-                if !is_valid_email(email) {
-                    println!("Invalid email format. Please provide a valid email address.");
-                    return;
-                }
-
-                // Validate password strength
-                if let Err(e) = validate_password(password) {
-                    println!("Password validation failed: {:?}", e);
-                    return;
-                }
-
-                // Check if username already exists
-                if store.users.contains_key(username) {
-                    println!("Username already exists. Please choose a different username.");
-                    return;
-                }
-
-                // Check if email is already in use
-                if store.users.values().any(|u| u.email == *email) {
-                    println!("Email address is already registered.");
-                    return;
-                }
-
-                // Add the new user
-                match handle_user_creation(
-                    &mut store,
-                    username.to_string(),
-                    email.to_string(),
-                    password.to_string(),
-                ) {
-                    Ok(_) => {
-                        println!("User successfully registered! You can now log in.");
-                        // Save the updated user store
-                        if let Err(e) = save_user_store(
-                            &store,
-                            &derive_key_from_passphrase("master_key", &store.salt),
-                        ) {
-                            println!("Warning: Failed to save user data: {}", e);
-                        }
-                    }
-                    Err(e) => println!("Failed to register user: {}", e),
-                }
-            }
-            // Handle profile command
-            Some(("profile", sub_matches)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
-                    continue;
-                }
-
-                // Show profile information
-                if sub_matches.get_flag("show") {
-                    if let Some(user) = store.users.get(&username) {
-                        println!("\nUser Profile");
-                        println!("------------");
-                        println!("Username: {}", user.username);
-                        println!("Email: {}", user.email);
-                        println!(
-                            "Account created: {}",
-                            chrono::NaiveDateTime::from_timestamp_opt(user.created_at as i64, 0)
-                                .unwrap_or_default()
-                                .format("%Y-%m-%d %H:%M:%S")
-                        );
-                        println!(
-                            "Last login: {}",
-                            chrono::NaiveDateTime::from_timestamp_opt(user.last_login as i64, 0)
-                                .unwrap_or_default()
-                                .format("%Y-%m-%d %H:%M:%S")
-                        );
+                        Ok(_) => println!("Task added successfully!"),
+                        Err(e) => println!("Error saving task: {}", e),
                     }
                 }
+                // Handle list command
+                Some(("list", sub_matches)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
+                    }
 
-                // Update email if provided
-                if let Some(new_email) = sub_matches.get_one::<String>("email") {
-                    // Validate email format
-                    if !new_email.contains('@') || !new_email.contains('.') {
-                        println!("Invalid email format. Please provide a valid email address.");
+                    // First check passphrase
+                    if !is_passphrase_correct(user, &password) {
+                        println!("Error: Incorrect passphrase. Unable to list tasks.");
                         return;
                     }
 
-                    if let Some(user) = store.users.get_mut(&username) {
-                        // Verify current password before making changes
-                        println!("Please enter your password to confirm changes:");
-                        let confirm_password = read_password().unwrap();
-
-                        let password_hash =
-                            hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
-                        if user.password_hash != password_hash {
-                            println!("Incorrect password. Email update cancelled.");
-                            return;
-                        }
-
-                        user.email = new_email.to_string();
-                        match save_user_store(
-                            &store,
-                            &derive_key_from_passphrase("master_key", &store.salt),
-                        ) {
-                            Ok(_) => println!("Email updated successfully."),
-                            Err(e) => println!("Failed to update email: {}", e),
-                        }
-                    }
-                }
-            }
-            // Handle change-password command
-            Some(("change-password", sub_matches)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
-                    continue;
-                }
-
-                let old_password = sub_matches.get_one::<String>("old-password").unwrap();
-                let new_password = sub_matches.get_one::<String>("new-password").unwrap();
-
-                // Get store's salt before mutable borrow
-                let store_salt = store.salt.clone();
-
-                if let Some(user) = store.users.get_mut(&username) {
-                    match user.change_password(old_password, new_password, &store_salt) {
-                        Ok(_) => {
+                    // Add error handling to task loading
+                    match load_tasks_from_file(user, &password) {
+                        Ok(tasks) => {
+                            let cache = SecurePasswordCache::new();
                             cache
-                                .cache_password(&username, new_password)
+                                .cache_password(&username, &password)
                                 .unwrap_or_else(|e| {
                                     println!("Warning: Failed to update password cache: {}", e);
                                 });
 
-                            match save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
-                                Ok(_) => println!("Password changed successfully."),
-                                Err(e) => println!("Error saving password change: {}", e),
+                            if tasks.is_empty() {
+                                println!("No tasks available.");
+                                return;
                             }
-                        }
-                        Err(e) => println!("Failed to change password: {}", e),
-                    }
-                } else {
-                    println!("User not found.");
-                }
-            }
-            // Handle reset-passowrd command
-            Some(("reset-password", sub_matches)) => {
-                let email = sub_matches.get_one::<String>("email").unwrap();
 
-                // Clean up expired data first
-                cleanup_expired_data(&mut store);
+                            let filter = sub_matches.get_one::<String>("filter");
+                            let sort = sub_matches.get_one::<String>("sort");
 
-                // Check rate limiting for reset attempts
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-
-                let tracker = store
-                    .reset_attempts
-                    .entry(email.to_string())
-                    .or_insert_with(ResetAttemptTracker::new);
-
-                // If this is a new attempt window (>24 hours since first attempt)
-                if current_time - tracker.first_attempt > 24 * 60 * 60 {
-                    tracker.attempts = 0;
-                    tracker.first_attempt = current_time;
-                }
-
-                // Check if too many attempts
-                if tracker.attempts >= 5 && current_time - tracker.last_attempt < 60 * 60 {
-                    println!("Too many reset attempts. Please try again in an hour.");
-                    return;
-                }
-
-                // Find user by email
-                if let Some(user) = store
-                    .users
-                    .values()
-                    .find(|u| u.email.as_str() == email.as_str())
-                {
-                    match user.request_password_reset() {
-                        Ok(reset_token) => {
-                            // Store the token
-                            store
-                                .reset_tokens
-                                .insert(reset_token.token.clone(), reset_token.clone());
-
-                            // Update attempt tracker
-                            tracker.attempts += 1;
-                            tracker.last_attempt = current_time;
-
-                            // Save the updated store with error handling
-                            match save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
-                                Ok(_) => {
-                                    match send_reset_email(&reset_token) {
-                                        Ok(_) => {
-                                            println!(
-                                            "Password reset email sent. Please check your inbox."
-                                        );
+                            let filtered_tasks = tasks
+                                .iter()
+                                .filter(|(_, task)| {
+                                    if let Some(f) = filter {
+                                        match f.as_str() {
+                                            "completed" => task.completed,
+                                            "high" => task.priority == "High",
+                                            _ => true,
                                         }
-                                        Err(e) => {
-                                            // Remove token if email fails
-                                            store.reset_tokens.remove(&reset_token.token);
-                                            println!("Failed to send reset email: {}", e);
-                                        }
+                                    } else {
+                                        true
                                     }
-                                }
-                                Err(e) => {
-                                    println!("Failed to save reset token: {}", e);
-                                    store.reset_tokens.remove(&reset_token.token);
-                                }
+                                })
+                                .collect::<HashMap<_, _>>();
+
+                            let sorted_tasks = filtered_tasks
+                                .iter()
+                                .sorted_by(|a, b| {
+                                    if let Some(s) = sort {
+                                        match s.as_str() {
+                                            "priority" => a.1.priority.cmp(&b.1.priority),
+                                            "completed" => a.1.completed.cmp(&b.1.completed),
+                                            _ => a.0.cmp(b.0),
+                                        }
+                                    } else {
+                                        a.0.cmp(b.0)
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+
+                            for (name, task) in sorted_tasks {
+                                println!(
+                                    "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
+                                    name, task.description, task.priority, task.completed
+                                );
                             }
                         }
-                        Err(e) => println!("Failed to create reset token: {}", e),
+                        Err(e) => println!("Error loading tasks: {}", e),
                     }
-                } else {
-                    // Don't reveal if email exists, but still update attempt tracker
-                    tracker.attempts += 1;
-                    tracker.last_attempt = current_time;
-                    println!("If this email is registered, you will receive a reset link shortly.");
                 }
+                // Handle edit command
+                Some(("edit", _)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
+                    }
 
-                // Save attempt tracker
-                if let Err(e) = save_user_store(
-                    &store,
-                    &derive_key_from_passphrase("master_key", &store.salt),
-                ) {
-                    println!("Warning: Failed to save attempt tracking: {}", e);
+                    // First check passphrase
+                    if !is_passphrase_correct(user, &password) {
+                        println!("Error: Incorrect passphrase. Unable to edit task.");
+                        return;
+                    }
+
+                    // Show available tasks
+                    println!("\nAvailable tasks:");
+                    for (name, _) in &tasks {
+                        println!("  {}", name);
+                    }
+
+                    println!("\nEnter the name of the task to edit:");
+                    let name = read_line().unwrap();
+
+                    if let Some(task) = tasks.get(&name) {
+                        let updated_task = handle_interactive_task_edit(task);
+                        tasks.insert(name.clone(), updated_task);
+
+                        cache
+                            .cache_password(&username, &password)
+                            .unwrap_or_else(|e| {
+                                println!("Warning: Failed to update password cache: {}", e);
+                            });
+
+                        match save_tasks_to_file(&tasks, user, &password) {
+                            Ok(_) => println!("Task updated successfully!"),
+                            Err(e) => println!("Error saving task update: {}", e),
+                        }
+                    } else {
+                        println!("Task not found: {}", name);
+                    }
                 }
-            }
-            // Handle confirm-reset command
-            Some(("confirm-reset", sub_matches)) => {
-                let token = sub_matches.get_one::<String>("token").unwrap();
-                let new_password = sub_matches.get_one::<String>("new-password").unwrap();
+                // Handle delete command
+                Some(("delete", sub_matches)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
+                    }
 
-                // Look up the stored token
-                if let Some(stored_token) = store.reset_tokens.get(token) {
-                    // Check if token has expired
+                    // First check passphrase
+                    if !is_passphrase_correct(user, &password) {
+                        println!("Error: Incorrect passphrase. Unable to delete task.");
+                        return;
+                    }
+
+                    let name = sub_matches.get_one::<String>("name").unwrap();
+
+                    // Check if task exists
+                    if !tasks.contains_key(name) {
+                        println!(
+                            "Task '{}' not found. Use 'list' command to see available tasks.",
+                            name
+                        );
+                        return;
+                    }
+
+                    // Asking for deletion confirmation
+                    loop {
+                        print!("Are you sure you want to delete task '{}'? (y/n): ", name);
+                        io::stdout().flush().unwrap(); // Ensure the prompt is displayed before input
+
+                        let mut confirmation = String::new();
+                        io::stdin().read_line(&mut confirmation).unwrap();
+                        let confirmation = confirmation.trim().to_lowercase();
+
+                        if confirmation.is_empty() || confirmation == "y" {
+                            println!("Task '{}' deleted.", name);
+                            // Add the actual deletion logic here
+                            break;
+                        } else if confirmation == "n" {
+                            println!("Task deletion cancelled.");
+                            return;
+                        } else {
+                            println!("Invalid input. Please enter 'y' for yes or 'n' for no.");
+                        }
+                    }
+
+                    if tasks.remove(name).is_some() {
+                        cache
+                            .cache_password(&username, &password)
+                            .unwrap_or_else(|e| {
+                                println!("Warning: Failed to update password cache: {}", e);
+                            });
+
+                        // Add error handling to save operation
+                        match save_tasks_to_file(&tasks, user, &password) {
+                            Ok(_) => println!("Task deleted: {}", name),
+                            Err(e) => println!("Error saving after deletion: {}", e),
+                        }
+                    } else {
+                        println!("Task not found: {}", name);
+                    }
+                }
+                // Handle register command
+                Some(("register", sub_matches)) => {
+                    let username = sub_matches.get_one::<String>("username").unwrap();
+                    let email = sub_matches.get_one::<String>("email").unwrap();
+                    let password = sub_matches.get_one::<String>("password").unwrap();
+
+                    // Validate email format
+                    if !is_valid_email(email) {
+                        println!("Invalid email format. Please provide a valid email address.");
+                        return;
+                    }
+
+                    // Validate password strength
+                    if let Err(e) = validate_password(password) {
+                        println!("Password validation failed: {:?}", e);
+                        return;
+                    }
+
+                    // Check if username already exists
+                    if store.users.contains_key(username) {
+                        println!("Username already exists. Please choose a different username.");
+                        return;
+                    }
+
+                    // Check if email is already in use
+                    if store.users.values().any(|u| u.email == *email) {
+                        println!("Email address is already registered.");
+                        return;
+                    }
+
+                    // Add the new user
+                    match handle_user_creation(
+                        &mut store,
+                        username.to_string(),
+                        email.to_string(),
+                        password.to_string(),
+                    ) {
+                        Ok(_) => {
+                            println!("User successfully registered! You can now log in.");
+                            // Save the updated user store
+                            if let Err(e) = save_user_store(
+                                &store,
+                                &derive_key_from_passphrase("master_key", &store.salt),
+                            ) {
+                                println!("Warning: Failed to save user data: {}", e);
+                            }
+                        }
+                        Err(e) => println!("Failed to register user: {}", e),
+                    }
+                }
+                // Handle profile command
+                Some(("profile", sub_matches)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
+                    }
+
+                    // Show profile information
+                    if sub_matches.get_flag("show") {
+                        if let Some(user) = store.users.get(&username) {
+                            println!("\nUser Profile");
+                            println!("------------");
+                            println!("Username: {}", user.username);
+                            println!("Email: {}", user.email);
+                            println!(
+                                "Account created: {}",
+                                chrono::NaiveDateTime::from_timestamp_opt(
+                                    user.created_at as i64,
+                                    0
+                                )
+                                .unwrap_or_default()
+                                .format("%Y-%m-%d %H:%M:%S")
+                            );
+                            println!(
+                                "Last login: {}",
+                                chrono::NaiveDateTime::from_timestamp_opt(
+                                    user.last_login as i64,
+                                    0
+                                )
+                                .unwrap_or_default()
+                                .format("%Y-%m-%d %H:%M:%S")
+                            );
+                        }
+                    }
+
+                    // Update email if provided
+                    if let Some(new_email) = sub_matches.get_one::<String>("email") {
+                        // Validate email format
+                        if !new_email.contains('@') || !new_email.contains('.') {
+                            println!("Invalid email format. Please provide a valid email address.");
+                            return;
+                        }
+
+                        if let Some(user) = store.users.get_mut(&username) {
+                            // Verify current password before making changes
+                            println!("Please enter your password to confirm changes:");
+                            let confirm_password = read_password().unwrap();
+
+                            let password_hash = hex::encode(derive_key_from_passphrase(
+                                &confirm_password,
+                                &store.salt,
+                            ));
+                            if user.password_hash != password_hash {
+                                println!("Incorrect password. Email update cancelled.");
+                                return;
+                            }
+
+                            user.email = new_email.to_string();
+                            match save_user_store(
+                                &store,
+                                &derive_key_from_passphrase("master_key", &store.salt),
+                            ) {
+                                Ok(_) => println!("Email updated successfully."),
+                                Err(e) => println!("Failed to update email: {}", e),
+                            }
+                        }
+                    }
+                }
+                // Handle change-password command
+                Some(("change-password", sub_matches)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
+                    }
+
+                    let old_password = sub_matches.get_one::<String>("old-password").unwrap();
+                    let new_password = sub_matches.get_one::<String>("new-password").unwrap();
+
+                    // Get store's salt before mutable borrow
+                    let store_salt = store.salt.clone();
+
+                    if let Some(user) = store.users.get_mut(&username) {
+                        match user.change_password(old_password, new_password, &store_salt) {
+                            Ok(_) => {
+                                cache
+                                    .cache_password(&username, new_password)
+                                    .unwrap_or_else(|e| {
+                                        println!("Warning: Failed to update password cache: {}", e);
+                                    });
+
+                                match save_user_store(
+                                    &store,
+                                    &derive_key_from_passphrase("master_key", &store.salt),
+                                ) {
+                                    Ok(_) => println!("Password changed successfully."),
+                                    Err(e) => println!("Error saving password change: {}", e),
+                                }
+                            }
+                            Err(e) => println!("Failed to change password: {}", e),
+                        }
+                    } else {
+                        println!("User not found.");
+                    }
+                }
+                // Handle reset-passowrd command
+                Some(("reset-password", sub_matches)) => {
+                    let email = sub_matches.get_one::<String>("email").unwrap();
+
+                    // Clean up expired data first
+                    cleanup_expired_data(&mut store);
+
+                    // Check rate limiting for reset attempts
                     let current_time = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_secs();
 
-                    if current_time > stored_token.expires_at {
-                        println!("Password reset token has expired. Please request a new one.");
+                    let tracker = store
+                        .reset_attempts
+                        .entry(email.to_string())
+                        .or_insert_with(ResetAttemptTracker::new);
+
+                    // If this is a new attempt window (>24 hours since first attempt)
+                    if current_time - tracker.first_attempt > 24 * 60 * 60 {
+                        tracker.attempts = 0;
+                        tracker.first_attempt = current_time;
+                    }
+
+                    // Check if too many attempts
+                    if tracker.attempts >= 5 && current_time - tracker.last_attempt < 60 * 60 {
+                        println!("Too many reset attempts. Please try again in an hour.");
                         return;
                     }
 
-                    // Find the user associated with this token
-                    if let Some(user) = store.users.get_mut(&stored_token.username) {
-                        // Validate new password
-                        if let Err(e) = validate_password(new_password) {
-                            println!("Invalid new password: {:?}", e);
+                    // Find user by email
+                    if let Some(user) = store
+                        .users
+                        .values()
+                        .find(|u| u.email.as_str() == email.as_str())
+                    {
+                        match user.request_password_reset() {
+                            Ok(reset_token) => {
+                                // Store the token
+                                store
+                                    .reset_tokens
+                                    .insert(reset_token.token.clone(), reset_token.clone());
+
+                                // Update attempt tracker
+                                tracker.attempts += 1;
+                                tracker.last_attempt = current_time;
+
+                                // Save the updated store with error handling
+                                match save_user_store(
+                                    &store,
+                                    &derive_key_from_passphrase("master_key", &store.salt),
+                                ) {
+                                    Ok(_) => {
+                                        match send_reset_email(&reset_token) {
+                                            Ok(_) => {
+                                                println!(
+                                            "Password reset email sent. Please check your inbox."
+                                        );
+                                            }
+                                            Err(e) => {
+                                                // Remove token if email fails
+                                                store.reset_tokens.remove(&reset_token.token);
+                                                println!("Failed to send reset email: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("Failed to save reset token: {}", e);
+                                        store.reset_tokens.remove(&reset_token.token);
+                                    }
+                                }
+                            }
+                            Err(e) => println!("Failed to create reset token: {}", e),
+                        }
+                    } else {
+                        // Don't reveal if email exists, but still update attempt tracker
+                        tracker.attempts += 1;
+                        tracker.last_attempt = current_time;
+                        println!(
+                            "If this email is registered, you will receive a reset link shortly."
+                        );
+                    }
+
+                    // Save attempt tracker
+                    if let Err(e) = save_user_store(
+                        &store,
+                        &derive_key_from_passphrase("master_key", &store.salt),
+                    ) {
+                        println!("Warning: Failed to save attempt tracking: {}", e);
+                    }
+                }
+                // Handle confirm-reset command
+                Some(("confirm-reset", sub_matches)) => {
+                    let token = sub_matches.get_one::<String>("token").unwrap();
+                    let new_password = sub_matches.get_one::<String>("new-password").unwrap();
+
+                    // Look up the stored token
+                    if let Some(stored_token) = store.reset_tokens.get(token) {
+                        // Check if token has expired
+                        let current_time = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
+
+                        if current_time > stored_token.expires_at {
+                            println!("Password reset token has expired. Please request a new one.");
                             return;
                         }
 
-                        // Update password hash
-                        user.password_hash =
-                            hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+                        // Find the user associated with this token
+                        if let Some(user) = store.users.get_mut(&stored_token.username) {
+                            // Validate new password
+                            if let Err(e) = validate_password(new_password) {
+                                println!("Invalid new password: {:?}", e);
+                                return;
+                            }
 
-                        cache
-                            .cache_password(&user.username, new_password)
-                            .unwrap_or_else(|e| {
-                                println!("Warning: Failed to update password cache: {}", e);
-                            });
+                            // Update password hash
+                            user.password_hash =
+                                hex::encode(derive_key_from_passphrase(new_password, &store.salt));
 
-                        // Remove the used token
-                        store.reset_tokens.remove(token);
+                            cache
+                                .cache_password(&user.username, new_password)
+                                .unwrap_or_else(|e| {
+                                    println!("Warning: Failed to update password cache: {}", e);
+                                });
+
+                            // Remove the used token
+                            store.reset_tokens.remove(token);
+
+                            // Save the updated store
+                            match save_user_store(
+                                &store,
+                                &derive_key_from_passphrase("master_key", &store.salt),
+                            ) {
+                                Ok(_) => {
+                                    println!("Password reset successful. You can now log in with your new password.");
+                                }
+                                Err(e) => println!("Error saving new password: {}", e),
+                            }
+                        } else {
+                            println!("Invalid reset token.");
+                        }
+                    } else {
+                        println!("Invalid or expired reset token.");
+                    }
+                }
+                // Handle delete-account command
+                Some(("delete-account", sub_matches)) => {
+                    // Check for session timeout before executing command
+                    if let Ok(None) = cache.get_cached_password() {
+                        println!("Session expired due to inactivity. Please log in again.");
+                        continue;
+                    }
+
+                    // Logging the delete-account operation
+                    log_data_operation("delete_account", &username, "user_store", true, None);
+
+                    let confirmation = sub_matches.get_one::<String>("confirm").unwrap();
+
+                    if confirmation != "DELETE" {
+                        println!("Account deletion cancelled. You must type 'DELETE' to confirm.");
+                        return;
+                    }
+
+                    println!("Please enter your password to confirm account deletion:");
+                    let confirm_password = read_password().unwrap();
+
+                    if let Some(user) = store.users.get(&username) {
+                        let password_hash =
+                            hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
+                        if user.password_hash != password_hash {
+                            println!("Incorrect password. Account deletion cancelled.");
+                            return;
+                        }
+
+                        // Add final confirmation
+                        println!("\nWARNING: This action cannot be undone!");
+                        println!("All your tasks and data will be permanently deleted.");
+                        println!("Type 'YES' to proceed with account deletion:");
+
+                        let final_confirmation = read_line().unwrap();
+                        if final_confirmation.trim() != "YES" {
+                            println!("Account deletion cancelled.");
+                            return;
+                        }
+
+                        // Remove user's task file
+                        if let Err(e) = std::fs::remove_file(&user.tasks_file) {
+                            println!("Warning: Failed to remove task file: {}", e);
+                        }
+
+                        // Remove user from store
+                        store.users.remove(&username);
+
+                        // Remove any reset tokens for this user
+                        store
+                            .reset_tokens
+                            .retain(|_, token| token.username != username);
 
                         // Save the updated store
                         match save_user_store(
@@ -1949,89 +2078,20 @@ fn main() {
                             &derive_key_from_passphrase("master_key", &store.salt),
                         ) {
                             Ok(_) => {
-                                println!("Password reset successful. You can now log in with your new password.");
+                                // Clear password cache
+                                let cache = SecurePasswordCache::new();
+                                let _ = cache.clear_cache();
+
+                                println!("Account successfully deleted.");
+                                process::exit(0);
                             }
-                            Err(e) => println!("Error saving new password: {}", e),
+                            Err(e) => println!("Error saving changes: {}", e),
                         }
-                    } else {
-                        println!("Invalid reset token.");
-                    }
-                } else {
-                    println!("Invalid or expired reset token.");
-                }
-            }
-            // Handle delete-account command
-            Some(("delete-account", sub_matches)) => {
-                // Check for session timeout before executing command
-                if let Ok(None) = cache.get_cached_password() {
-                    println!("Session expired due to inactivity. Please log in again.");
-                    continue;
-                }
-
-                // Logging the delete-account operation
-                log_data_operation("delete_account", &username, "user_store", true, None);
-
-                let confirmation = sub_matches.get_one::<String>("confirm").unwrap();
-
-                if confirmation != "DELETE" {
-                    println!("Account deletion cancelled. You must type 'DELETE' to confirm.");
-                    return;
-                }
-
-                println!("Please enter your password to confirm account deletion:");
-                let confirm_password = read_password().unwrap();
-
-                if let Some(user) = store.users.get(&username) {
-                    let password_hash =
-                        hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
-                    if user.password_hash != password_hash {
-                        println!("Incorrect password. Account deletion cancelled.");
-                        return;
-                    }
-
-                    // Add final confirmation
-                    println!("\nWARNING: This action cannot be undone!");
-                    println!("All your tasks and data will be permanently deleted.");
-                    println!("Type 'YES' to proceed with account deletion:");
-
-                    let final_confirmation = read_line().unwrap();
-                    if final_confirmation.trim() != "YES" {
-                        println!("Account deletion cancelled.");
-                        return;
-                    }
-
-                    // Remove user's task file
-                    if let Err(e) = std::fs::remove_file(&user.tasks_file) {
-                        println!("Warning: Failed to remove task file: {}", e);
-                    }
-
-                    // Remove user from store
-                    store.users.remove(&username);
-
-                    // Remove any reset tokens for this user
-                    store
-                        .reset_tokens
-                        .retain(|_, token| token.username != username);
-
-                    // Save the updated store
-                    match save_user_store(
-                        &store,
-                        &derive_key_from_passphrase("master_key", &store.salt),
-                    ) {
-                        Ok(_) => {
-                            // Clear password cache
-                            let cache = SecurePasswordCache::new();
-                            let _ = cache.clear_cache();
-
-                            println!("Account successfully deleted.");
-                            process::exit(0);
-                        }
-                        Err(e) => println!("Error saving changes: {}", e),
                     }
                 }
-            }
-            _ => {
-                println!("No valid command provided. Use --help for usage information.");
+                _ => {
+                    println!("No valid command provided. Use --help for usage information.");
+                }
             }
         }
     }
