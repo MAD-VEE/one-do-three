@@ -259,7 +259,6 @@ impl User {
         &mut self,
         old_password: &str,
         new_password: &str,
-        store_salt: &[u8],
     ) -> Result<(), String> {
         // Verify old password using user's own salt
         let old_hash = hex::encode(derive_key_from_passphrase(old_password, &self.salt));
@@ -337,7 +336,7 @@ impl User {
         }
 
         // Update password hash
-        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &self.salt));
 
         Ok(())
     }
@@ -747,7 +746,7 @@ fn is_passphrase_correct(user: &User, passphrase: &str) -> bool {
 }
 
 // Function to load tasks from the user-specific encrypted file with error handling
-fn load_tasks_from_file(user: &User, passphrase: &str) -> Result<HashMap<String, Task>, TaskError> {
+fn load_tasks_from_file(user: &User, password: &str) -> Result<HashMap<String, Task>, TaskError> {
     let file = match File::open(&user.tasks_file) {
         Ok(file) => file,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
@@ -1036,16 +1035,27 @@ fn handle_user_creation(
 }
 
 // Function to save UserStore to file
-fn save_user_store(store: &UserStore, master_key: &[u8]) -> io::Result<()> {
-    let data = serde_json::to_string_pretty(store).unwrap();
-    let encrypted_data = encrypt_data(&data, master_key, &store.iv);
+fn save_user_store(store: &UserStore) -> io::Result<()> {
+    let data = serde_json::to_string_pretty(store)?;
 
-    let mut file_data = Vec::new();
-    file_data.extend_from_slice(&store.salt);
-    file_data.extend_from_slice(&store.iv);
-    file_data.extend_from_slice(&encrypted_data);
+    // Create with restricted permissions
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600) // Owner read/write only
+            .open(USERS_FILE)?;
+        file.write_all(data.as_bytes())?;
+    }
 
-    File::create(USERS_FILE)?.write_all(&file_data)?;
+    #[cfg(not(unix))]
+    {
+        File::create(USERS_FILE)?.write_all(data.as_bytes())?;
+    }
+
     Ok(())
 }
 
@@ -1077,19 +1087,12 @@ fn load_user_store(master_key: &[u8]) -> io::Result<UserStore> {
 }
 
 fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore) -> bool {
-    // First, check if user exists and get password verification info
-    let user_opt = store.users.get(username);
-    let verification_result = if let Some(user) = user_opt {
+    // Get user reference first
+    if let Some(user) = store.users.get_mut(username) {
         // Use the user's own salt to verify password
         let password_hash = hex::encode(derive_key_from_passphrase(password, &user.salt));
-        password_hash == user.password_hash
-    } else {
-        false
-    };
 
-    // Now handle the result
-    if let Some(user) = store.users.get_mut(username) {
-        if verification_result {
+        if password_hash == user.password_hash {
             // Update login time and reset failed attempts
             user.failed_attempts = 0;
             user.last_login = SystemTime::now()
@@ -1111,7 +1114,7 @@ fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore
             }
             return true;
         } else {
-            // Log failed attempt before handling it
+            // Log failed attempt
             log_auth_event(
                 "login_attempt",
                 &user.username,
@@ -1119,15 +1122,14 @@ fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore
                 Some("invalid password"),
             );
 
-            // Handle failed login attempt
-            return handle_failed_login_attempt(user, store);
+            // Handle failed login attempt for this user
+            handle_failed_login_attempt(user, store)
         }
+    } else {
+        // Log attempt with non-existent username
+        log_auth_event("login_attempt", username, false, Some("username not found"));
+        false
     }
-
-    // Log attempt with non-existent username
-    log_auth_event("login_attempt", username, false, Some("username not found"));
-
-    false
 }
 
 // Function to clean up expired tokens and reset attempts
@@ -1296,11 +1298,16 @@ fn main() {
     }
 
     // Load user store
-    let mut store = load_user_store(&derive_key_from_passphrase(
-        "master_key",
-        &generate_random_salt(),
-    ))
-    .expect("Failed to load user store");
+    let mut store = match File::open(USERS_FILE) {
+        Ok(file) => {
+            let reader = io::BufReader::new(file);
+            match serde_json::from_reader(reader) {
+                Ok(store) => store,
+                Err(_) => create_user_store(),
+            }
+        }
+        Err(_) => create_user_store(),
+    };
 
     // Main program loop
     'main: loop {
@@ -1745,10 +1752,7 @@ fn main() {
                         Ok(_) => {
                             println!("User successfully registered! You can now log in.");
                             // Save the updated user store
-                            if let Err(e) = save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
+                            if let Err(e) = save_user_store(&store) {
                                 println!("Warning: Failed to save user data: {}", e);
                             }
                         }
@@ -1806,7 +1810,7 @@ fn main() {
 
                             let password_hash = hex::encode(derive_key_from_passphrase(
                                 &confirm_password,
-                                &store.salt,
+                                &user.salt,
                             ));
                             if user.password_hash != password_hash {
                                 println!("Incorrect password. Email update cancelled.");
@@ -1814,10 +1818,7 @@ fn main() {
                             }
 
                             user.email = new_email.to_string();
-                            match save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
+                            match save_user_store(&store) {
                                 Ok(_) => println!("Email updated successfully."),
                                 Err(e) => println!("Failed to update email: {}", e),
                             }
@@ -1835,11 +1836,8 @@ fn main() {
                     let old_password = sub_matches.get_one::<String>("old-password").unwrap();
                     let new_password = sub_matches.get_one::<String>("new-password").unwrap();
 
-                    // Get store's salt before mutable borrow
-                    let store_salt = store.salt.clone();
-
                     if let Some(user) = store.users.get_mut(&username) {
-                        match user.change_password(old_password, new_password, &store_salt) {
+                        match user.change_password(old_password, new_password) {
                             Ok(_) => {
                                 cache
                                     .cache_password(&username, new_password)
@@ -1847,10 +1845,7 @@ fn main() {
                                         println!("Warning: Failed to update password cache: {}", e);
                                     });
 
-                                match save_user_store(
-                                    &store,
-                                    &derive_key_from_passphrase("master_key", &store.salt),
-                                ) {
+                                match save_user_store(&store) {
                                     Ok(_) => println!("Password changed successfully."),
                                     Err(e) => println!("Error saving password change: {}", e),
                                 }
@@ -1909,10 +1904,7 @@ fn main() {
                                 tracker.last_attempt = current_time;
 
                                 // Save the updated store with error handling
-                                match save_user_store(
-                                    &store,
-                                    &derive_key_from_passphrase("master_key", &store.salt),
-                                ) {
+                                match save_user_store(&store) {
                                     Ok(_) => {
                                         match send_reset_email(&reset_token) {
                                             Ok(_) => {
@@ -1945,10 +1937,7 @@ fn main() {
                     }
 
                     // Save attempt tracker
-                    if let Err(e) = save_user_store(
-                        &store,
-                        &derive_key_from_passphrase("master_key", &store.salt),
-                    ) {
+                    if let Err(e) = save_user_store(&store) {
                         println!("Warning: Failed to save attempt tracking: {}", e);
                     }
                 }
@@ -1980,7 +1969,7 @@ fn main() {
 
                             // Update password hash
                             user.password_hash =
-                                hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+                                hex::encode(derive_key_from_passphrase(new_password, &user.salt));
 
                             cache
                                 .cache_password(&user.username, new_password)
@@ -1992,10 +1981,7 @@ fn main() {
                             store.reset_tokens.remove(token);
 
                             // Save the updated store
-                            match save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
+                            match save_user_store(&store) {
                                 Ok(_) => {
                                     println!("Password reset successful. You can now log in with your new password.");
                                 }
@@ -2031,7 +2017,7 @@ fn main() {
 
                     if let Some(user) = store.users.get(&username) {
                         let password_hash =
-                            hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
+                            hex::encode(derive_key_from_passphrase(&confirm_password, &user.salt));
                         if user.password_hash != password_hash {
                             println!("Incorrect password. Account deletion cancelled.");
                             return;
@@ -2062,10 +2048,7 @@ fn main() {
                             .retain(|_, token| token.username != username);
 
                         // Save the updated store
-                        match save_user_store(
-                            &store,
-                            &derive_key_from_passphrase("master_key", &store.salt),
-                        ) {
+                        match save_user_store(&store) {
                             Ok(_) => {
                                 // Clear password cache
                                 let cache = SecurePasswordCache::new();
