@@ -906,10 +906,7 @@ fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
     user.last_failed_attempt = current_time;
 
     // Save the updated user store to persist the failed attempt count
-    if let Err(e) = save_user_store(
-        store,
-        &derive_key_from_passphrase("master_key", &store.salt),
-    ) {
+    if let Err(e) = save_user_store(store) {
         println!("Warning: Failed to save user data: {}", e);
     }
 
@@ -1184,10 +1181,7 @@ fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore
                 .as_secs();
 
             // Save the updated user store
-            if let Err(e) = save_user_store(
-                store,
-                &derive_key_from_passphrase("master_key", &store.salt),
-            ) {
+            if let Err(e) = save_user_store(store) {
                 println!("Warning: Failed to save user data: {}", e);
             }
             return true;
@@ -1222,10 +1216,7 @@ fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore
         user.last_failed_attempt = current_time;
 
         // Save the updated user store
-        if let Err(e) = save_user_store(
-            store,
-            &derive_key_from_passphrase("master_key", &store.salt),
-        ) {
+        if let Err(e) = save_user_store(store) {
             println!("Warning: Failed to save user data: {}", e);
         }
 
@@ -1859,10 +1850,7 @@ fn main() {
                         Ok(_) => {
                             println!("User successfully registered! You can now log in.");
                             // Save the updated user store
-                            if let Err(e) = save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
+                            if let Err(e) = save_user_store(&store) {
                                 println!("Warning: Failed to save user data: {}", e);
                             }
                         }
@@ -1928,10 +1916,7 @@ fn main() {
                             }
 
                             user.email = new_email.to_string();
-                            match save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
+                            match save_user_store(&store) {
                                 Ok(_) => println!("Email updated successfully."),
                                 Err(e) => println!("Failed to update email: {}", e),
                             }
@@ -1961,10 +1946,7 @@ fn main() {
                                         println!("Warning: Failed to update password cache: {}", e);
                                     });
 
-                                match save_user_store(
-                                    &store,
-                                    &derive_key_from_passphrase("master_key", &store.salt),
-                                ) {
+                                match save_user_store(&store) {
                                     Ok(_) => println!("Password changed successfully."),
                                     Err(e) => println!("Error saving password change: {}", e),
                                 }
@@ -2023,10 +2005,7 @@ fn main() {
                                 tracker.last_attempt = current_time;
 
                                 // Save the updated store with error handling
-                                match save_user_store(
-                                    &store,
-                                    &derive_key_from_passphrase("master_key", &store.salt),
-                                ) {
+                                match save_user_store(&store) {
                                     Ok(_) => {
                                         match send_reset_email(&reset_token) {
                                             Ok(_) => {
@@ -2059,10 +2038,7 @@ fn main() {
                     }
 
                     // Save attempt tracker
-                    if let Err(e) = save_user_store(
-                        &store,
-                        &derive_key_from_passphrase("master_key", &store.salt),
-                    ) {
+                    if let Err(e) = save_user_store(&store) {
                         println!("Warning: Failed to save attempt tracking: {}", e);
                     }
                 }
@@ -2106,10 +2082,7 @@ fn main() {
                             store.reset_tokens.remove(token);
 
                             // Save the updated store
-                            match save_user_store(
-                                &store,
-                                &derive_key_from_passphrase("master_key", &store.salt),
-                            ) {
+                            match save_user_store(&store) {
                                 Ok(_) => {
                                     println!("Password reset successful. You can now log in with your new password.");
                                 }
@@ -2176,10 +2149,7 @@ fn main() {
                             .retain(|_, token| token.username != username);
 
                         // Save the updated store
-                        match save_user_store(
-                            &store,
-                            &derive_key_from_passphrase("master_key", &store.salt),
-                        ) {
+                        match save_user_store(&store) {
                             Ok(_) => {
                                 // Clear password cache
                                 let cache = SecurePasswordCache::new();
