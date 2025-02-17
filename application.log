@@ -56,3 +56,6 @@
 [2025-02-16T14:59:21Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:59:21, details=Some("successful password verification")
 [2025-02-16T18:57:52Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-16T18:57:52Z INFO  one_do_three one_do_three] Application started
+[2025-02-17T16:19:06Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T16:19:20Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T16:19:37Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-17 17:19:37, details=Some("new user registration")
