@@ -18,6 +18,8 @@ use rpassword::read_password;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
@@ -198,42 +200,52 @@ impl UserStore {
         email: String,
         password: String,
     ) -> io::Result<()> {
+        // Create tasks directory if it doesn't exist
+        std::fs::create_dir_all("tasks")?;
+
         // Get current timestamp for user creation and last login times
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        // Debug prints
-        println!("Registration Debug:");
-        println!("1. Salt at registration: {:?}", self.salt);
-        println!("2. Password being used: {}", password);
-
         // Hash the user's password using PBKDF2 with the store's salt
-        // Convert the resulting hash to hexadecimal string for storage
         let password_hash = derive_key_from_passphrase(&password, &self.salt);
         let password_hash_hex = hex::encode(password_hash);
 
-        // Debug print
-        println!("3. Generated hash at registration: {}", password_hash_hex);
-
         // Create new User struct with initial values
+        // Note: tasks_file is temporarily empty, will be set after user creation
         let user = User {
             username: username.clone(), // Clone username as we need it for HashMap key
             email,
-            password_hash: password_hash_hex, // Store the hex encoded hash
-            created_at: current_time,         // Set creation timestamp
-            last_login: current_time,         // Initially same as creation time
-            failed_attempts: 0,               // Initialize login attempt counter
-            last_failed_attempt: 0,           // Initialize failed attempt timestamp
-            tasks_file: format!("tasks_{}.json", username), // Create unique task file name
-            last_activity: current_time,      // Initialize last activity to creation time
+            password_hash: password_hash_hex,
+            created_at: current_time,
+            last_login: current_time,
+            failed_attempts: 0,
+            last_failed_attempt: 0,
+            tasks_file: String::new(), // Temporarily empty, will be set below
+            last_activity: current_time,
         };
+
+        // Generate secure filename for user's tasks
+        // This creates a hash-based filename to prevent information disclosure
+        let mut user = user;
+        match user.generate_task_filename() {
+            Ok(secure_filename) => {
+                user.tasks_file = secure_filename;
+            }
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("Failed to generate secure filename: {}", e),
+                ));
+            }
+        }
 
         // Insert the new user into the HashMap
         self.users.insert(username, user);
 
-        // Save store immediately after adding user
+        // Save store immediately after adding user to persist changes
         save_user_store(self)?;
 
         Ok(())
@@ -243,7 +255,61 @@ impl UserStore {
     // Takes a reference to username and returns an Option containing a reference to the User
     // Returns None if user doesn't exist
     pub fn get_user(&self, username: &str) -> Option<&User> {
-        self.users.get(username)
+        // Convert username to lowercase for case-insensitive lookup
+        let normalized_username = username.trim().to_lowercase();
+        self.users.get(&normalized_username)
+    }
+
+    // Function to clean up orphaned task files
+    // This removes any task files that don't belong to current users
+    pub fn cleanup_task_files(&self) -> io::Result<()> {
+        let tasks_dir = std::path::Path::new("tasks");
+        if !tasks_dir.exists() {
+            return Ok(());
+        }
+
+        // Collect all valid task files from current users
+        let valid_files: HashSet<String> = self
+            .users
+            .values()
+            .map(|user| user.tasks_file.clone())
+            .collect();
+
+        // Remove any files that don't belong to current users
+        for entry in std::fs::read_dir(tasks_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+                let full_path = format!("tasks/{}", filename);
+                if !valid_files.contains(&full_path) {
+                    std::fs::remove_file(path)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // Function to migrate all existing users to secure filenames
+    // This should be called when upgrading an existing system
+    pub fn migrate_all_to_secure_filenames(&mut self) -> io::Result<()> {
+        // Create tasks directory if it doesn't exist
+        std::fs::create_dir_all("tasks")?;
+
+        // Collect usernames first to avoid borrow checker issues
+        let usernames: Vec<String> = self.users.keys().cloned().collect();
+
+        // Migrate each user's task file
+        for username in usernames {
+            if let Some(user) = self.users.get_mut(&username) {
+                user.migrate_to_secure_filename()?;
+            }
+        }
+
+        // Save store to persist changes
+        save_user_store(self)?;
+
+        Ok(())
     }
 }
 
