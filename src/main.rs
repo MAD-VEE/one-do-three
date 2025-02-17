@@ -16,11 +16,13 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use rpassword::read_password;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::collections::HashMap;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
+use std::path::Path;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -307,51 +309,75 @@ impl SecurePasswordCache {
 
 // Functions to handle password management
 impl User {
-    // Function to change user's password
+    // Function to generate a secure, unique filename for user's tasks
+    // This prevents information disclosure and filesystem security issues
+    pub fn generate_task_filename(&self) -> io::Result<String> {
+        // Create tasks directory if it doesn't exist
+        std::fs::create_dir_all("tasks")?;
+
+        // Create a unique identifier by combining username and creation timestamp
+        // This ensures uniqueness even if usernames are reused
+        let unique_id = format!("{}{}", self.username, self.created_at);
+
+        // Use SHA-256 to create a secure hash of the unique identifier
+        // This prevents directory traversal attacks and special character issues
+        let filename_hash = sha2::Sha256::digest(unique_id.as_bytes());
+
+        // Convert first 8 bytes of hash to hex for a shorter but still unique filename
+        // Using 8 bytes (16 hex chars) gives us 2^64 possible filenames
+        let safe_filename = hex::encode(&filename_hash[..8]);
+
+        // Store in the tasks subdirectory with a consistent prefix and extension
+        // The .dat extension obscures the file content type
+        Ok(format!("tasks/user_{}.dat", safe_filename))
+    }
+
+    // Function to change user's password with existing functionality
     pub fn change_password(
         &mut self,
         old_password: &str,
         new_password: &str,
         store_salt: &[u8],
     ) -> Result<(), String> {
-        // Verify old password
+        // Verify old password by comparing hashes
         let old_hash = hex::encode(derive_key_from_passphrase(old_password, store_salt));
         if self.password_hash != old_hash {
             return Err("Current password is incorrect".to_string());
         }
 
-        // Validate new password
+        // Validate new password using password policy
         if let Err(e) = validate_password(new_password) {
             return Err(format!("Invalid new password: {:?}", e));
         }
 
-        // Check if new password matches old password
+        // Ensure new password is different from the old one
         if old_password == new_password {
             return Err("New password must be different from current password".to_string());
         }
 
-        // Update password hash
+        // Update password hash with the new password
         self.password_hash = hex::encode(derive_key_from_passphrase(new_password, store_salt));
 
         Ok(())
     }
 
-    // Function to initiate password reset
+    // Function to initiate password reset process
     pub fn request_password_reset(&self) -> Result<PasswordResetToken, String> {
-        // Generate random token
+        // Generate a cryptographically secure random token
         let token: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
-            .take(32)
+            .take(32) // 32 characters provides good security
             .map(char::from)
             .collect();
 
-        // Set expiration time (30 minutes from now)
+        // Set token expiration to 30 minutes from now
         let expires_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            + 1800;
+            + 1800; // 30 minutes in seconds
 
+        // Create reset token with user information
         let reset_token = PasswordResetToken {
             token: token.clone(),
             expires_at,
@@ -362,7 +388,7 @@ impl User {
         Ok(reset_token)
     }
 
-    // Function to reset password using token
+    // Function to reset password using a valid token
     pub fn reset_password_with_token(
         &mut self,
         token: &str,
@@ -370,12 +396,12 @@ impl User {
         stored_token: &PasswordResetToken,
         store: &UserStore,
     ) -> Result<(), String> {
-        // Check if token matches
+        // Verify token matches the stored one
         if token != stored_token.token {
             return Err("Invalid reset token".to_string());
         }
 
-        // Check if token has expired
+        // Check token expiration
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -384,13 +410,30 @@ impl User {
             return Err("Reset token has expired".to_string());
         }
 
-        // Validate new password
+        // Validate new password strength
         if let Err(e) = validate_password(new_password) {
             return Err(format!("Invalid new password: {:?}", e));
         }
 
-        // Update password hash
+        // Update password hash using store's salt
         self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
+
+        Ok(())
+    }
+
+    // Function to migrate existing task file to secure filename
+    // This should be called when upgrading existing users
+    pub fn migrate_to_secure_filename(&mut self) -> io::Result<()> {
+        // Generate new secure filename
+        let new_filename = self.generate_task_filename()?;
+
+        // If old file exists, move it to new location
+        if Path::new(&self.tasks_file).exists() {
+            std::fs::rename(&self.tasks_file, &new_filename)?;
+        }
+
+        // Update user's task file path
+        self.tasks_file = new_filename;
 
         Ok(())
     }
@@ -932,7 +975,8 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     // Try to get cached credentials
     if let Ok(Some((cached_username, cached_password))) = cache.get_cached_password() {
         // Check if the cached password is "logout"
-        if cached_password.trim().to_lowercase() == "logout" {
+        if cached_password.trim() == "logout" {
+            // Removed .to_lowercase() here
             if let Err(e) = cache.clear_cache() {
                 println!("Warning: Failed to clear password cache: {}", e);
             }
@@ -960,17 +1004,20 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
             println!("\nPlease enter your username (type 'exit' to quit):");
         }
 
-        let username = read_line().unwrap().trim().to_string();
-        match username.trim().to_lowercase().as_str() {
+        let username = read_line().unwrap();
+        let normalized_username = username.trim().to_lowercase(); // Normalize username only
+
+        match normalized_username.as_str() {
             "exit" => {
                 println!("Operation cancelled by user.");
                 process::exit(0);
             }
-            username => {
+            _ => {
                 println!("Enter password:");
-                let password = read_password().unwrap();
+                let password = read_password().unwrap(); // Keep password as-is, no lowercase
 
-                match password.trim().to_lowercase().as_str() {
+                match password.trim() {
+                    // Only trim whitespace, don't lowercase
                     "exit" => {
                         println!("Operation cancelled by user.");
                         process::exit(0);
@@ -984,12 +1031,12 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
                         continue;
                     }
                     password => {
-                        if verify_user_credentials(username, password, store) {
+                        if verify_user_credentials(&normalized_username, password, store) {
                             // Cache the successful credentials
-                            if let Err(e) = cache.cache_password(username, password) {
+                            if let Err(e) = cache.cache_password(&normalized_username, password) {
                                 println!("Warning: Failed to cache credentials: {}", e);
                             }
-                            return Some((username.to_string(), password.to_string()));
+                            return Some((normalized_username, password.to_string()));
                         }
 
                         if attempts >= 3 {
@@ -1642,7 +1689,6 @@ fn main() {
                                 .required(true),
                         ),
                 )
-                .subcommand(Command::new("help").about("Show help information"))
                 .subcommand(Command::new("logout").about("Logout and clear cached password"))
                 .get_matches_from(args);
 
