@@ -1400,12 +1400,21 @@ fn main() {
         process::exit(1);
     }
 
-    // Load user store
-    let mut store = load_user_store(&derive_key_from_passphrase(
-        "master_key",
-        &generate_random_salt(),
-    ))
-    .expect("Failed to load user store");
+    // Create instance of secure key management and ensure key exists
+    let secure_key = SecureMasterKey::new();
+    if let Err(e) = secure_key.initialize_if_needed() {
+        eprintln!("Failed to initialize master key: {}", e);
+        process::exit(1);
+    }
+
+    // Load the user store with error handling
+    let mut store = match load_user_store() {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!("Failed to load user store: {}", e);
+            process::exit(1);
+        }
+    };
 
     // Main program loop
     'main: loop {
