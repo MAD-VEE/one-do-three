@@ -2291,3 +2291,182 @@ fn main() {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Helper function to create a test UserStore
+    fn create_test_store() -> UserStore {
+        UserStore {
+            users: HashMap::new(),
+            salt: generate_random_salt(),
+            iv: generate_random_iv(),
+            reset_tokens: HashMap::new(),
+            reset_attempts: HashMap::new(),
+        }
+    }
+
+    // Helper function to create a test user
+    fn create_test_user(store: &mut UserStore) -> (String, String, String) {
+        let username = "testuser".to_string();
+        let email = "test@example.com".to_string();
+        let password = "TestPassword123!".to_string();
+
+        store
+            .add_user(username.clone(), email.clone(), password.clone())
+            .expect("Failed to add test user");
+
+        (username, email, password)
+    }
+
+    #[test]
+    fn test_user_registration() {
+        let mut store = create_test_store();
+        let (username, email, password) = create_test_user(&mut store);
+
+        assert!(store.users.contains_key(&username));
+        let user = store.users.get(&username).unwrap();
+        assert_eq!(user.email, email);
+        assert!(!user.password_hash.is_empty());
+    }
+
+    #[test]
+    fn test_password_hashing_consistency() {
+        let mut store = create_test_store();
+        let password = "TestPassword123!";
+
+        // Generate two hashes with the same salt
+        let hash1 = hex::encode(derive_key_from_passphrase(password, &store.salt));
+        let hash2 = hex::encode(derive_key_from_passphrase(password, &store.salt));
+
+        // Verify hashes are identical
+        assert_eq!(hash1, hash2, "Password hashing is not consistent");
+    }
+
+    #[test]
+    fn test_successful_login() {
+        let mut store = create_test_store();
+        let (username, _, password) = create_test_user(&mut store);
+
+        assert!(verify_user_credentials(&username, &password, &mut store));
+    }
+
+    #[test]
+    fn test_failed_login_wrong_password() {
+        let mut store = create_test_store();
+        let (username, _, _) = create_test_user(&mut store);
+
+        assert!(!verify_user_credentials(
+            &username,
+            "WrongPassword123!",
+            &mut store
+        ));
+    }
+
+    #[test]
+    fn test_failed_login_nonexistent_user() {
+        let mut store = create_test_store();
+        assert!(!verify_user_credentials(
+            "nonexistent",
+            "TestPassword123!",
+            &mut store
+        ));
+    }
+
+    #[test]
+    fn test_login_rate_limiting() {
+        let mut store = create_test_store();
+        let (username, _, _) = create_test_user(&mut store);
+
+        // Attempt multiple failed logins
+        for _ in 0..3 {
+            assert!(!verify_user_credentials(
+                &username,
+                "WrongPassword123!",
+                &mut store
+            ));
+        }
+
+        // Fourth attempt should be rate limited
+        let user = store.users.get(&username).unwrap();
+        assert_eq!(user.failed_attempts, 3);
+    }
+
+    #[test]
+    fn test_password_hash_verification() {
+        let mut store = create_test_store();
+        let (username, _, password) = create_test_user(&mut store);
+
+        // Get the stored hash
+        let stored_hash = store.users.get(&username).unwrap().password_hash.clone();
+
+        // Generate a new hash with the same password and salt
+        let new_hash = hex::encode(derive_key_from_passphrase(&password, &store.salt));
+
+        // Verify hashes match
+        assert_eq!(stored_hash, new_hash, "Password hash verification failed");
+    }
+
+    #[test]
+    fn test_user_store_persistence() {
+        let mut store = create_test_store();
+        let (username, email, _) = create_test_user(&mut store);
+
+        // Save the store
+        save_user_store(&store).expect("Failed to save user store");
+
+        // Load the store
+        let loaded_store = load_user_store().expect("Failed to load user store");
+
+        // Verify user data persisted correctly
+        assert!(loaded_store.users.contains_key(&username));
+        let loaded_user = loaded_store.users.get(&username).unwrap();
+        assert_eq!(loaded_user.email, email);
+    }
+
+    #[test]
+    fn test_username_normalization() {
+        let mut store = create_test_store();
+        let (_, _, password) = create_test_user(&mut store);
+
+        // Try logging in with different case/spacing
+        assert!(verify_user_credentials("TestUser  ", &password, &mut store));
+        assert!(verify_user_credentials("testUser", &password, &mut store));
+        assert!(verify_user_credentials("TESTUSER", &password, &mut store));
+    }
+
+    #[test]
+    fn test_salt_consistency() {
+        let mut store = create_test_store();
+        let original_salt = store.salt.clone();
+
+        // Add a user
+        let (username, _, password) = create_test_user(&mut store);
+
+        // Verify salt hasn't changed
+        assert_eq!(
+            store.salt, original_salt,
+            "Store salt changed during user creation"
+        );
+
+        // Save and reload store
+        save_user_store(&store).expect("Failed to save store");
+        let mut loaded_store = load_user_store().expect("Failed to load store"); // Changed this line
+
+        // Verify salt persisted correctly
+        assert_eq!(
+            loaded_store.salt, original_salt,
+            "Store salt changed during persistence"
+        );
+
+        // Verify login still works with loaded store
+        assert!(verify_user_credentials(
+            &username,
+            &password,
+            &mut loaded_store
+        ));
+    }
+}

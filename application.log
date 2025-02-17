@@ -59,3 +59,19 @@
 [2025-02-17T16:19:06Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-17T16:19:20Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-17T16:19:37Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-17 17:19:37, details=Some("new user registration")
+[2025-02-17T20:24:07Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T20:24:35Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T20:24:44Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T20:24:59Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-17 21:24:59, details=Some("starting user registration")
+[2025-02-17T20:25:01Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-17 21:25:01, details=Some("user created and store saved")
+[2025-02-17T20:25:14Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=****, success=false, timestamp=2025-02-17 21:25:14, details=Some("starting verification")
+[2025-02-17T20:25:14Z WARN  one_do_three one_do_three] Auth event: type=login_failure, user=****, success=false, timestamp=2025-02-17 21:25:14, details=Some("failed attempt #1")
+[2025-02-17T20:25:26Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=s0***!!, success=false, timestamp=2025-02-17 21:25:26, details=Some("starting verification")
+[2025-02-17T20:25:26Z WARN  one_do_three one_do_three] Auth event: type=login_failure, user=s0***!!, success=false, timestamp=2025-02-17 21:25:26, details=Some("user not found")
+[2025-02-17T20:25:33Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=****, success=false, timestamp=2025-02-17 21:25:33, details=Some("starting verification")
+[2025-02-17T20:25:33Z WARN  one_do_three one_do_three] Auth event: type=login_failure, user=****, success=false, timestamp=2025-02-17 21:25:33, details=Some("failed attempt #2")
+[2025-02-17T20:32:01Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T20:32:25Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T20:32:33Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T20:32:44Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=****, success=false, timestamp=2025-02-17 21:32:44, details=Some("starting verification")
+[2025-02-17T20:32:44Z WARN  one_do_three one_do_three] Auth event: type=login_failure, user=****, success=false, timestamp=2025-02-17 21:32:44, details=Some("failed attempt #3")
