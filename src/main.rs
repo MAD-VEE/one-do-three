@@ -1065,32 +1065,78 @@ fn handle_user_creation(
     email: String,
     password: String,
 ) -> io::Result<()> {
-    // Logging the user creation operation
+    // Normalize the username for consistency with login
+    let normalized_username = username.trim().to_lowercase();
+
+    // Add debug logging to track user creation process
+    println!("Debug: Attempting to create user: {}", normalized_username);
+    println!("Debug: Current users in store: {}", store.users.len());
+
+    // Log the start of user creation operation
     log_data_operation(
         "create_user",
-        &username,
+        &normalized_username,
         "user_store",
         true,
-        Some("new user registration"),
+        Some("starting user registration"),
     );
 
+    // Verify the store's salt is properly initialized
+    if store.salt.is_empty() {
+        println!("Debug: Generating new salt for store");
+        store.salt = generate_random_salt();
+    }
+
     // Attempt to add user to the store and handle the result
-    match store.add_user(username.clone(), email, password) {
+    match store.add_user(normalized_username.clone(), email.clone(), password.clone()) {
         Ok(_) => {
-            // If successful, print confirmation message
-            println!("User {} created successfully", username);
-            Ok(())
+            // Verify the user was actually added
+            if let Some(user) = store.users.get(&normalized_username) {
+                println!("Debug: Verifying user data:");
+                println!("Debug: Email matches: {}", user.email == email);
+                println!(
+                    "Debug: Password hash exists: {}",
+                    !user.password_hash.is_empty()
+                );
+            }
+
+            // Attempt to save the store immediately after successful user creation
+            match save_user_store(store) {
+                Ok(_) => {
+                    println!("Debug: User store saved successfully");
+                    log_data_operation(
+                        "create_user",
+                        &normalized_username,
+                        "user_store",
+                        true,
+                        Some("user created and store saved"),
+                    );
+                    println!("User {} created successfully", normalized_username);
+                    Ok(())
+                }
+                Err(e) => {
+                    // Log store saving failure
+                    log_data_operation(
+                        "create_user",
+                        &normalized_username,
+                        "user_store",
+                        false,
+                        Some(&format!("failed to save store: {}", e)),
+                    );
+                    println!("Failed to save user store: {}", e);
+                    Err(e)
+                }
+            }
         }
         Err(e) => {
-            // Logging the error if user creation failed
+            // Log user creation failure
             log_data_operation(
                 "create_user",
-                &username,
+                &normalized_username,
                 "user_store",
                 false,
-                Some(&e.to_string()),
+                Some(&format!("failed to add user: {}", e)),
             );
-            // If failed, print error message and propagate error
             println!("Failed to create user: {}", e);
             Err(e)
         }
