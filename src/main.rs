@@ -999,35 +999,45 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     }
 }
 
-// Modify your load_user_store function
+// Modified function to load the user store from file using the secure master key
 fn load_user_store() -> io::Result<UserStore> {
+    // Create an instance of our secure key management
     let secure_key = SecureMasterKey::new();
+
+    // Ensure we have a master key available
     secure_key.initialize_if_needed()?;
 
+    // Retrieve the master key from secure storage
     let master_key = secure_key.get_key()?;
 
+    // Attempt to open the user store file
     match File::open(USERS_FILE) {
         Ok(mut file) => {
+            // Read the entire file into a buffer
             let mut file_data = Vec::new();
             file.read_to_end(&mut file_data)?;
 
+            // Check if file has minimum required data (salt + iv = 32 bytes)
             if file_data.len() >= 32 {
+                // Extract salt and initialization vector from file
                 let salt = file_data[..16].to_vec();
                 let iv = file_data[16..32].to_vec();
                 let encrypted_data = &file_data[32..];
 
+                // Attempt to decrypt and parse the user store data
                 match decrypt_data(encrypted_data, &master_key, &iv) {
                     Ok(decrypted_data) => match serde_json::from_str(&decrypted_data) {
                         Ok(store) => Ok(store),
-                        Err(_) => Ok(create_user_store()),
+                        Err(_) => Ok(create_user_store()), // Create new store if parsing fails
                     },
-                    Err(_) => Ok(create_user_store()),
+                    Err(_) => Ok(create_user_store()), // Create new store if decryption fails
                 }
             } else {
+                // Create new store if file is too short
                 Ok(create_user_store())
             }
         }
-        Err(_) => Ok(create_user_store()),
+        Err(_) => Ok(create_user_store()), // Create new store if file doesn't exist
     }
 }
 
