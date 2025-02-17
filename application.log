@@ -75,3 +75,8 @@
 [2025-02-17T20:32:33Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-17T20:32:44Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=****, success=false, timestamp=2025-02-17 21:32:44, details=Some("starting verification")
 [2025-02-17T20:32:44Z WARN  one_do_three one_do_three] Auth event: type=login_failure, user=****, success=false, timestamp=2025-02-17 21:32:44, details=Some("failed attempt #3")
+[2025-02-17T21:00:01Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T21:00:19Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-17 22:00:19, details=Some("starting user registration")
+[2025-02-17T21:00:21Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-17 22:00:21, details=Some("user created and store saved")
+[2025-02-17T21:00:31Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=****, success=false, timestamp=2025-02-17 22:00:31, details=Some("starting verification")
+[2025-02-17T21:00:31Z WARN  one_do_three one_do_three] Auth event: type=login_failure, user=****, success=false, timestamp=2025-02-17 22:00:31, details=Some("failed attempt #1")

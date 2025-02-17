@@ -202,26 +202,38 @@ impl UserStore {
             .unwrap()
             .as_secs();
 
+        // Debug prints
+        println!("Registration Debug:");
+        println!("1. Salt at registration: {:?}", self.salt);
+        println!("2. Password being used: {}", password);
+
         // Hash the user's password using PBKDF2 with the store's salt
         // Convert the resulting hash to hexadecimal string for storage
         let password_hash = derive_key_from_passphrase(&password, &self.salt);
-        let password_hash = hex::encode(password_hash);
+        let password_hash_hex = hex::encode(password_hash);
+
+        // Debug print
+        println!("3. Generated hash at registration: {}", password_hash_hex);
 
         // Create new User struct with initial values
         let user = User {
             username: username.clone(), // Clone username as we need it for HashMap key
             email,
-            password_hash,
-            created_at: current_time, // Set creation timestamp
-            last_login: current_time, // Initially same as creation time
-            failed_attempts: 0,       // Initialize login attempt counter
-            last_failed_attempt: 0,   // Initialize failed attempt timestamp
+            password_hash: password_hash_hex, // Store the hex encoded hash
+            created_at: current_time,         // Set creation timestamp
+            last_login: current_time,         // Initially same as creation time
+            failed_attempts: 0,               // Initialize login attempt counter
+            last_failed_attempt: 0,           // Initialize failed attempt timestamp
             tasks_file: format!("tasks_{}.json", username), // Create unique task file name
-            last_activity: current_time, // Initialize last activity to creation time
+            last_activity: current_time,      // Initialize last activity to creation time
         };
 
         // Insert the new user into the HashMap
         self.users.insert(username, user);
+
+        // Save store immediately after adding user
+        save_user_store(self)?;
+
         Ok(())
     }
 
@@ -1212,139 +1224,70 @@ fn load_user_store() -> io::Result<UserStore> {
 }
 
 pub fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore) -> bool {
-    // Add debug logging for troubleshooting authentication attempts
-    println!("Debug: Attempting authentication for user: {}", username);
-    println!(
-        "Debug: Current number of users in store: {}",
-        store.users.len()
-    );
+    println!("\nLogin Debug:");
+    println!("1. Salt at login: {:?}", store.salt);
+    println!("2. Password being used: {}", password);
 
-    // Normalize the username input by trimming whitespace and converting to lowercase
-    // This ensures consistent username matching regardless of case or spacing
-    let normalized_username = username.trim().to_lowercase();
-
-    // Generate password hash using store's salt
-    // The same salt must be used for both registration and verification
     let password_hash = hex::encode(derive_key_from_passphrase(password, &store.salt));
-    println!(
-        "Debug: Generated password hash length: {}",
-        password_hash.len()
-    );
+    println!("3. Generated hash at login: {}", password_hash);
 
-    // Log the authentication attempt before processing
-    log_auth_event(
-        "login_attempt",
-        &normalized_username,
-        false,
-        Some("starting verification"),
-    );
+    if let Some(user) = store.users.get_mut(username) {
+        println!("4. Found user in store");
+        println!("5. Stored hash: {}", user.password_hash);
+        println!("6. Hashes match: {}", user.password_hash == password_hash);
 
-    // Get mutable reference to user (if exists)
-    // First check if we can find the user in our store
-    match store.users.get_mut(&normalized_username) {
-        Some(user) => {
-            println!("Debug: Found user in store");
-            println!("Debug: Stored hash length: {}", user.password_hash.len());
+        if user.password_hash == password_hash {
+            // Reset failed attempts and update last login on successful login
+            user.failed_attempts = 0;
+            user.last_login = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
 
-            // Compare the generated hash with the stored hash
-            if user.password_hash == password_hash {
-                // Successful login - update user metrics
-                user.failed_attempts = 0;
-                user.last_login = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-
-                // Log successful authentication
-                log_auth_event(
-                    "login_success",
-                    &normalized_username,
-                    true,
-                    Some("password verified"),
-                );
-
-                // Save the updated user store to persist the login timestamp
-                match save_user_store(store) {
-                    Ok(_) => {
-                        println!("Debug: Successfully saved updated user store");
-                        true
-                    }
-                    Err(e) => {
-                        println!(
-                            "Warning: Failed to save user data after successful login: {}",
-                            e
-                        );
-                        // Still return true as authentication succeeded
-                        true
-                    }
-                }
-            } else {
-                // Password mismatch - handle failed attempt
-                println!("Debug: Password hash mismatch");
-
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-
-                // Implement rate limiting for failed attempts
-                if user.failed_attempts >= 3 {
-                    let time_since_last_attempt = current_time - user.last_failed_attempt;
-
-                    // Enforce 30-second timeout after 3 failed attempts
-                    if time_since_last_attempt < 30 {
-                        println!(
-                            "Too many failed attempts. Please wait {} seconds before trying again.",
-                            30 - time_since_last_attempt
-                        );
-                        return false;
-                    }
-
-                    // Reset counter after timeout period
-                    user.failed_attempts = 0;
-                }
-
-                // Update failed attempt metrics
-                user.failed_attempts += 1;
-                user.last_failed_attempt = current_time;
-
-                // Log failed attempt
-                log_auth_event(
-                    "login_failure",
-                    &normalized_username,
-                    false,
-                    Some(&format!("failed attempt #{}", user.failed_attempts)),
-                );
-
-                // Save updated failed attempt count
-                if let Err(e) = save_user_store(store) {
-                    println!(
-                        "Warning: Failed to save user data after failed attempt: {}",
-                        e
-                    );
-                }
-
-                false
+            // Save the updated user store
+            if let Err(e) = save_user_store(store) {
+                println!("Warning: Failed to save user data: {}", e);
             }
+            return true;
         }
-        None => {
-            // User not found in store
-            println!(
-                "Debug: No user found with username: {}",
-                normalized_username
-            );
 
-            // Log failed attempt due to unknown user
-            log_auth_event(
-                "login_failure",
-                &normalized_username,
-                false,
-                Some("user not found"),
-            );
+        // Handle failed attempt
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-            // Return false but don't give specific error to prevent username enumeration
-            false
+        // Check if user has exceeded maximum attempts (3)
+        if user.failed_attempts >= 3 {
+            // Calculate time passed since last attempt
+            let time_since_last_attempt = current_time - user.last_failed_attempt;
+
+            // If less than 30 seconds have passed, prevent login attempt
+            if time_since_last_attempt < 30 {
+                println!(
+                    "Too many failed attempts. Please wait {} seconds before trying again.",
+                    30 - time_since_last_attempt
+                );
+                return false;
+            }
+
+            // Reset failed attempts counter after 30-second timeout
+            user.failed_attempts = 0;
         }
+
+        // Increment failed attempts and update last attempt timestamp
+        user.failed_attempts += 1;
+        user.last_failed_attempt = current_time;
+
+        // Save the updated user store
+        if let Err(e) = save_user_store(store) {
+            println!("Warning: Failed to save user data: {}", e);
+        }
+
+        false
+    } else {
+        println!("4. User not found in store");
+        false
     }
 }
 
