@@ -999,48 +999,6 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     }
 }
 
-// Modified function to load the user store from file using the secure master key
-fn load_user_store() -> io::Result<UserStore> {
-    // Create an instance of our secure key management
-    let secure_key = SecureMasterKey::new();
-
-    // Ensure we have a master key available
-    secure_key.initialize_if_needed()?;
-
-    // Retrieve the master key from secure storage
-    let master_key = secure_key.get_key()?;
-
-    // Attempt to open the user store file
-    match File::open(USERS_FILE) {
-        Ok(mut file) => {
-            // Read the entire file into a buffer
-            let mut file_data = Vec::new();
-            file.read_to_end(&mut file_data)?;
-
-            // Check if file has minimum required data (salt + iv = 32 bytes)
-            if file_data.len() >= 32 {
-                // Extract salt and initialization vector from file
-                let salt = file_data[..16].to_vec();
-                let iv = file_data[16..32].to_vec();
-                let encrypted_data = &file_data[32..];
-
-                // Attempt to decrypt and parse the user store data
-                match decrypt_data(encrypted_data, &master_key, &iv) {
-                    Ok(decrypted_data) => match serde_json::from_str(&decrypted_data) {
-                        Ok(store) => Ok(store),
-                        Err(_) => Ok(create_user_store()), // Create new store if parsing fails
-                    },
-                    Err(_) => Ok(create_user_store()), // Create new store if decryption fails
-                }
-            } else {
-                // Create new store if file is too short
-                Ok(create_user_store())
-            }
-        }
-        Err(_) => Ok(create_user_store()), // Create new store if file doesn't exist
-    }
-}
-
 // Function to check file permissions for a user
 fn check_file_permissions(user: &User, file_path: &str) -> Result<(), TaskError> {
     let metadata = match std::fs::metadata(file_path) {
@@ -1143,43 +1101,70 @@ fn handle_user_creation(
 }
 
 // Function to save UserStore to file
-fn save_user_store(store: &UserStore, master_key: &[u8]) -> io::Result<()> {
-    let data = serde_json::to_string_pretty(store).unwrap();
-    let encrypted_data = encrypt_data(&data, master_key, &store.iv);
+// Modified function to save the user store to file using the secure master key
+fn save_user_store(store: &UserStore) -> io::Result<()> {
+    // Create an instance of our secure key management
+    let secure_key = SecureMasterKey::new();
 
+    // Retrieve the master key from secure storage
+    let master_key = secure_key.get_key()?;
+
+    // Convert the user store to a JSON string
+    let data = serde_json::to_string_pretty(store).unwrap();
+
+    // Encrypt the JSON data using the master key
+    let encrypted_data = encrypt_data(&data, &master_key, &store.iv);
+
+    // Prepare the file data with salt, IV, and encrypted data
     let mut file_data = Vec::new();
     file_data.extend_from_slice(&store.salt);
     file_data.extend_from_slice(&store.iv);
     file_data.extend_from_slice(&encrypted_data);
 
+    // Write the complete data to the user store file
     File::create(USERS_FILE)?.write_all(&file_data)?;
     Ok(())
 }
 
-// Function to load UserStore from file
-fn load_user_store(master_key: &[u8]) -> io::Result<UserStore> {
+// Modified function to load the user store from file using the secure master key
+fn load_user_store() -> io::Result<UserStore> {
+    // Create an instance of our secure key management
+    let secure_key = SecureMasterKey::new();
+
+    // Ensure we have a master key available
+    secure_key.initialize_if_needed()?;
+
+    // Retrieve the master key from secure storage
+    let master_key = secure_key.get_key()?;
+
+    // Attempt to open the user store file
     match File::open(USERS_FILE) {
         Ok(mut file) => {
+            // Read the entire file into a buffer
             let mut file_data = Vec::new();
             file.read_to_end(&mut file_data)?;
 
+            // Check if file has minimum required data (salt + iv = 32 bytes)
             if file_data.len() >= 32 {
+                // Extract salt and initialization vector from file
                 let salt = file_data[..16].to_vec();
                 let iv = file_data[16..32].to_vec();
                 let encrypted_data = &file_data[32..];
 
-                match decrypt_data(encrypted_data, master_key, &iv) {
+                // Attempt to decrypt and parse the user store data
+                match decrypt_data(encrypted_data, &master_key, &iv) {
                     Ok(decrypted_data) => match serde_json::from_str(&decrypted_data) {
                         Ok(store) => Ok(store),
-                        Err(_) => Ok(create_user_store()),
+                        Err(_) => Ok(create_user_store()), // Create new store if parsing fails
                     },
-                    Err(_) => Ok(create_user_store()),
+                    Err(_) => Ok(create_user_store()), // Create new store if decryption fails
                 }
             } else {
+                // Create new store if file is too short
                 Ok(create_user_store())
             }
         }
-        Err(_) => Ok(create_user_store()),
+        Err(_) => Ok(create_user_store()), // Create new store if file doesn't exist
     }
 }
 
