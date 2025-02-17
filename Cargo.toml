@@ -22,3 +22,4 @@ lettre = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 env_logger = "0.10"
+aes-gcm = "0.10.1"

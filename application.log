@@ -22,3 +22,37 @@
 [2025-02-15T18:51:20Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-16T13:28:37Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-16T13:28:57Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-16 14:28:57, details=Some("new user registration")
+[2025-02-16T14:49:57Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:50:17Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-16 15:50:17, details=Some("new user registration")
+[2025-02-16T14:50:25Z WARN  one_do_three one_do_three] Auth event: type=login_attempt, user=****, success=false, timestamp=2025-02-16 15:50:25, details=Some("username not found")
+[2025-02-16T14:50:33Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:50:33, details=Some("successful password verification")
+[2025-02-16T14:51:02Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:51:09Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:51:09, details=Some("successful password verification")
+[2025-02-16T14:51:26Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:51:29Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:51:29, details=Some("successful password verification")
+[2025-02-16T14:52:26Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:52:35Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:52:35, details=Some("successful password verification")
+[2025-02-16T14:53:07Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:53:09Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:53:09, details=Some("successful password verification")
+[2025-02-16T14:54:23Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:54:27Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:54:30Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:54:30, details=Some("successful password verification")
+[2025-02-16T14:55:51Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:55:54Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:55:54, details=Some("successful password verification")
+[2025-02-16T14:56:04Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:56:05Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:56:05, details=Some("successful password verification")
+[2025-02-16T14:56:28Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:56:31Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:56:31, details=Some("successful password verification")
+[2025-02-16T14:56:46Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:56:48Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:56:48, details=Some("successful password verification")
+[2025-02-16T14:57:09Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=****, resource=Test Task, success=true, timestamp=2025-02-16 15:57:09, details=None
+[2025-02-16T14:57:26Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:57:31Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:57:31, details=Some("successful password verification")
+[2025-02-16T14:57:50Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:57:53Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:57:53, details=Some("successful password verification")
+[2025-02-16T14:58:08Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:58:10Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:58:10, details=Some("successful password verification")
+[2025-02-16T14:59:17Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T14:59:21Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-16 15:59:21, details=Some("successful password verification")
+[2025-02-16T18:57:52Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-16T18:57:52Z INFO  one_do_three one_do_three] Application started
