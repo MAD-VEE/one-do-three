@@ -1656,6 +1656,8 @@ fn main() {
                     // Set up CLI command structure using clap
                     let matches = Command::new("task")
                         .about("Task management commands")
+                        // Define the subcommands with their arguments using clap
+                        // This sets up how the commands can be used from the command line
                         .subcommand(Command::new("add").about("Add a new task"))
                         .subcommand(
                             Command::new("list")
@@ -1677,19 +1679,23 @@ fn main() {
                         .subcommand(Command::new("delete").about("Delete an existing task"))
                         .subcommand(Command::new("register").about("Register a new user"))
                         .subcommand(
-                            Command::new("profile")
-                                .about("View or update user profile")
+                            Command::new("profile") // Create a new subcommand named "profile"
+                                .about("View or update user profile") // Help text shown in --help
                                 .arg(
+                                    // Define the --email argument
                                     Arg::new("email")
-                                        .long("email")
-                                        .help("Update email address")
-                                        .value_name("NEW_EMAIL"),
+                                        .long("email") // Makes the argument accessible as --email
+                                        .help("Update email address") // Help text for this specific argument
+                                        .value_name("NEW_EMAIL") // Placeholder shown in help text
+                                        .required(false), // Make this argument optional
                                 )
                                 .arg(
+                                    // Define the --show argument
                                     Arg::new("show")
-                                        .long("show")
-                                        .help("Show profile information")
-                                        .action(clap::ArgAction::SetTrue),
+                                        .long("show") // Makes the argument accessible as --show
+                                        .help("Show profile information") // Help text for this specific argument
+                                        .action(clap::ArgAction::SetTrue) // Makes this a flag (no value needed)
+                                        .required(false), // Make this argument optional
                                 ),
                         )
                         .subcommand(
@@ -2031,63 +2037,98 @@ fn main() {
                         }
                         // Handle profile command
                         Some(("profile", sub_matches)) => {
-                            // Check for session timeout before executing command
+                            // First, check if the user's session is still valid
+                            // This prevents unauthorized access to profile information
                             if let Ok(None) = cache.get_cached_password() {
                                 println!("Session expired due to inactivity. Please log in again.");
                                 continue;
                             }
 
-                            // Show profile information
-                            if sub_matches.get_flag("show") {
+                            // If no arguments provided (i.e., just 'profile' command), show profile by default
+                            // This makes the command more user-friendly by having a sensible default behavior
+                            if !sub_matches.contains_id("email") && !sub_matches.get_flag("show") {
                                 if let Some(user) = store.users.get(&username) {
+                                    // Display basic profile information in a formatted manner
                                     println!("\nUser Profile");
                                     println!("------------");
                                     println!("Username: {}", user.username);
                                     println!("Email: {}", user.email);
                                     println!(
                                         "Account created: {}",
-                                        chrono::NaiveDateTime::from_timestamp_opt(
-                                            user.created_at as i64,
-                                            0
-                                        )
-                                        .unwrap_or_default()
-                                        .format("%Y-%m-%d %H:%M:%S")
+                                        format_timestamp(user.created_at) // Convert Unix timestamp to readable format
                                     );
                                     println!(
                                         "Last login: {}",
-                                        chrono::NaiveDateTime::from_timestamp_opt(
-                                            user.last_login as i64,
-                                            0
-                                        )
-                                        .unwrap_or_default()
-                                        .format("%Y-%m-%d %H:%M:%S")
+                                        format_timestamp(user.last_login) // Show when user last logged in
+                                    );
+                                    println!(
+                                        "Last active: {}",
+                                        format_timestamp(user.last_activity) // Show last activity timestamp
+                                    );
+                                }
+                                continue; // Return to main loop after displaying information
+                            }
+
+                            // Handle the --show flag if present
+                            // This explicitly shows profile information even if other arguments are present
+                            if sub_matches.get_flag("show") {
+                                if let Some(user) = store.users.get(&username) {
+                                    // Display the same profile information as above
+                                    println!("\nUser Profile");
+                                    println!("------------");
+                                    println!("Username: {}", user.username);
+                                    println!("Email: {}", user.email);
+                                    println!(
+                                        "Account created: {}",
+                                        format_timestamp(user.created_at)
+                                    );
+                                    println!("Last login: {}", format_timestamp(user.last_login));
+                                    println!(
+                                        "Last active: {}",
+                                        format_timestamp(user.last_activity)
                                     );
                                 }
                             }
 
-                            // Update email if provided
+                            // Handle email update if --email argument is provided
                             if let Some(new_email) = sub_matches.get_one::<String>("email") {
-                                // Validate email format
-                                if !new_email.contains('@') || !new_email.contains('.') {
+                                // Validate the new email format using the is_valid_email function
+                                if !is_valid_email(new_email) {
                                     println!("Invalid email format. Please provide a valid email address.");
-                                    return;
+                                    continue;
                                 }
 
+                                // Check if the new email is already in use by another user
+                                // This prevents email address conflicts between users
+                                if store
+                                    .users
+                                    .values()
+                                    .any(|u| u.email == *new_email && u.username != username)
+                                {
+                                    println!("This email address is already registered to another account.");
+                                    continue;
+                                }
+
+                                // Get mutable reference to the current user to update their email
                                 if let Some(user) = store.users.get_mut(&username) {
-                                    // Verify current password before making changes
+                                    // Require password confirmation for security
                                     println!("Please enter your password to confirm changes:");
                                     let confirm_password = read_password().unwrap();
 
+                                    // Verify the provided password by comparing hashes
                                     let password_hash = hex::encode(derive_key_from_passphrase(
                                         &confirm_password,
                                         &store.salt,
                                     ));
                                     if user.password_hash != password_hash {
                                         println!("Incorrect password. Email update cancelled.");
-                                        return;
+                                        continue;
                                     }
 
+                                    // Update the email address
                                     user.email = new_email.to_string();
+
+                                    // Save the updated user store to persist the change
                                     match save_user_store(&store) {
                                         Ok(_) => println!("Email updated successfully."),
                                         Err(e) => println!("Failed to update email: {}", e),

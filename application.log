@@ -112,3 +112,10 @@
 [2025-02-17T21:48:58Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-17T21:49:00Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-17 22:49:00, details=Some("using cached credentials")
 [2025-02-17T21:50:55Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T22:02:38Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-17T22:03:07Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=bl***om, resource=user_store, success=true, timestamp=2025-02-17 23:03:07, details=Some("starting user registration")
+[2025-02-17T22:03:09Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=bl***om, resource=user_store, success=true, timestamp=2025-02-17 23:03:09, details=Some("user created and store saved")
+[2025-02-17T22:03:28Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-17 23:03:28, details=Some("using cached credentials")
+[2025-02-17T22:04:53Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=bl***om, resource=Cuddle, success=true, timestamp=2025-02-17 23:04:53, details=None
+[2025-02-17T22:06:38Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-18T20:35:55Z INFO  one_do_three one_do_three] Logging system initialized
