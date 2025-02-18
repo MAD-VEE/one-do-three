@@ -257,6 +257,49 @@ impl SecureEmailManager {
     }
 }
 
+// Function to send emails using securely stored credentials
+pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), String> {
+    use lettre::message::header::ContentType;
+    use lettre::transport::smtp::authentication::Credentials;
+    use lettre::{Message, SmtpTransport, Transport};
+
+    // Get instance of secure email manager
+    let email_manager = SecureEmailManager::new();
+
+    // Retrieve stored credentials
+    let creds = email_manager.get_credentials()?;
+
+    // Create email message
+    let email = Message::builder()
+        .from(
+            format!("Task Manager <{}>", creds.username)
+                .parse()
+                .map_err(|e| format!("Invalid from address: {}", e))?,
+        )
+        .to(to_email
+            .parse()
+            .map_err(|e| format!("Invalid to address: {}", e))?)
+        .subject(subject)
+        .header(ContentType::TEXT_PLAIN)
+        .body(body.to_string())
+        .map_err(|e| format!("Failed to create email: {}", e))?;
+
+    // Set up SMTP transport with credentials
+    let mailer = SmtpTransport::relay(&creds.host)
+        .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
+        .credentials(Credentials::new(creds.username, creds.password))
+        .port(creds.port)
+        .timeout(Some(std::time::Duration::from_secs(10)))
+        .build();
+
+    // Send the email
+    mailer
+        .send(&email)
+        .map_err(|e| format!("Failed to send email: {}", e))?;
+
+    Ok(())
+}
+
 // PasswordResetToken struct with a user identifier
 #[derive(Serialize, Deserialize, Clone)]
 struct PasswordResetToken {
