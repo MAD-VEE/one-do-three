@@ -300,6 +300,34 @@ pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), Strin
     Ok(())
 }
 
+// Function to send password reset email using secure credentials
+pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> {
+    // Create a professional email template for password reset
+    let email_body = format!(
+        "Hello,\n\n\
+        A password reset was requested for your One-Do-Three account.\n\n\
+        To reset your password, use the following command:\n\n\
+        confirm-reset {} YourNewPassword\n\n\
+        This token will expire in 30 minutes.\n\n\
+        Security Tips:\n\
+        - Choose a strong password with at least 8 characters\n\
+        - Include uppercase and lowercase letters\n\
+        - Include numbers and special characters\n\n\
+        If you did not request this reset, please ignore this email and ensure \
+        your account is secure.\n\n\
+        Best regards,\n\
+        Task Manager Team",
+        reset_token.token
+    );
+
+    // Send the reset email using the secure email system
+    send_email(
+        &reset_token.user_email,
+        "Password Reset Request - One-Do-Three",
+        &email_body,
+    )
+}
+
 // PasswordResetToken struct with a user identifier
 #[derive(Serialize, Deserialize, Clone)]
 struct PasswordResetToken {
