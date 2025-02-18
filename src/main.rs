@@ -821,18 +821,86 @@ fn show_initial_options() {
 // Help information function
 fn show_help_information() {
     println!("\n=== Task Manager Help ===");
-    println!("Available commands:");
-    println!("  add      - Add a new task");
-    println!("  list     - List all tasks");
-    println!("  edit     - Edit an existing task");
-    println!("  delete   - Delete a task");
-    println!("  profile  - View or update profile");
-    println!("  logout   - Log out of current session");
-    println!("\nOptions for 'list' command:");
-    println!("  list --filter high     - Show only high priority tasks");
-    println!("  list --filter completed - Show only completed tasks");
-    println!("  list --sort priority    - Sort tasks by priority");
-    println!("\nType any command with --help for more information");
+
+    // Main Commands Section
+    println!("\nMain Commands:");
+    println!("  add              - Add a new task");
+    println!("  list             - List all tasks");
+    println!("  edit             - Edit an existing task");
+    println!("  delete           - Delete a task");
+    println!("  profile          - View or update profile information");
+    println!("  change-password  - Change your password");
+    println!("  logout           - Log out of current session");
+
+    // Profile Command Details
+    println!("\nProfile Command Usage:");
+    println!("  profile                    - Show your profile information");
+    println!("  profile --show             - Explicitly display profile information");
+    println!("  profile --email NEW_EMAIL  - Update your email address");
+    println!("\nProfile command notes:");
+    println!("  - Email updates require password confirmation");
+    println!("  - Profile information includes:");
+    println!("    * Username");
+    println!("    * Email address");
+    println!("    * Account creation date");
+    println!("    * Last login time");
+    println!("    * Last activity time");
+
+    // List Command Options
+    println!("\nList Command Options:");
+    println!("  list --filter high       - Show only high priority tasks");
+    println!("  list --filter completed  - Show only completed tasks");
+    println!("  list --sort priority     - Sort tasks by priority");
+    println!("  list --sort name         - Sort tasks by name");
+
+    // Task Management Notes
+    println!("\nTask Management Notes:");
+    println!("  - Tasks can have high, medium, or low priority");
+    println!("  - Each task has a name, description, priority, and completion status");
+    println!("  - Task names must be unique");
+    println!("  - All changes are automatically saved");
+
+    // Security Notes
+    println!("\nSecurity Notes:");
+    println!("  - Sessions timeout after 15 minutes of inactivity");
+    println!("  - Profile changes require password confirmation");
+    println!("  - Password must contain uppercase, lowercase, numbers, and special characters");
+
+    println!("\nType any command with --help for more specific information");
+}
+
+// Function to show command-specific help
+fn show_command_help(command: &str) {
+    match command {
+        "profile" => {
+            println!("\n=== Profile Command Help ===");
+            println!("\nUsage:");
+            println!("  profile                    - View your profile information");
+            println!("  profile --show             - Display detailed profile information");
+            println!("  profile --email NEW_EMAIL  - Update your email address");
+            println!("\nOptions:");
+            println!("  --show    Show profile information");
+            println!("  --email   Update email address (requires password confirmation)");
+            println!("\nExamples:");
+            println!("  profile");
+            println!("  profile --show");
+            println!("  profile --email user@example.com");
+        }
+        "add" => {
+            println!("\n=== Add Command Help ===");
+            println!("\nUsage:");
+            println!("  add  - Start interactive task creation");
+            println!("\nYou will be prompted for:");
+            println!("  - Task name (must be unique)");
+            println!("  - Description (optional)");
+            println!("  - Priority (High/Medium/Low)");
+        }
+        // Add other command-specific help sections as needed
+        _ => {
+            println!("\nNo detailed help available for '{}' command.", command);
+            println!("Use 'help' to see general usage information.");
+        }
+    }
 }
 
 // Main authentication flow to include initial options
@@ -1649,7 +1717,19 @@ fn main() {
             // First, let's handle the input before passing to clap
             match args[0].to_lowercase().as_str() {
                 "help" => {
-                    show_help_information();
+                    if args.len() > 1 {
+                        // Show command-specific help if a command is specified
+                        show_command_help(&args[1].to_lowercase());
+                    } else {
+                        // Show general help information
+                        show_help_information();
+                    }
+                    continue;
+                }
+                cmd if cmd.ends_with("--help") || cmd.ends_with("-h") => {
+                    // Extract the base command by removing the help flag
+                    let base_cmd = cmd.replace("--help", "").replace("-h", "");
+                    show_command_help(&base_cmd);
                     continue;
                 }
                 _ => {
