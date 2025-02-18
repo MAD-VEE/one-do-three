@@ -328,6 +328,48 @@ pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> 
     )
 }
 
+// Add a command to set up email credentials
+pub fn setup_email_credentials() -> Result<(), String> {
+    use rpassword::read_password;
+
+    println!("\n=== Email Configuration Setup ===");
+
+    // Get SMTP server details
+    println!("Enter SMTP server address (e.g., smtp.gmail.com):");
+    let mut host = String::new();
+    std::io::stdin()
+        .read_line(&mut host)
+        .map_err(|e| format!("Failed to read input: {}", e))?;
+    let host = host.trim();
+
+    println!("Enter SMTP port (default: 587):");
+    let mut port_str = String::new();
+    std::io::stdin()
+        .read_line(&mut port_str)
+        .map_err(|e| format!("Failed to read input: {}", e))?;
+    let port = port_str.trim().parse::<u16>().unwrap_or(587);
+
+    // Get email credentials
+    println!("Enter email address:");
+    let mut username = String::new();
+    std::io::stdin()
+        .read_line(&mut username)
+        .map_err(|e| format!("Failed to read input: {}", e))?;
+    let username = username.trim();
+
+    println!("Enter email password or app-specific password:");
+    let password = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+    // Store credentials securely
+    let email_manager = SecureEmailManager::new();
+    email_manager.store_credentials(username, &password, host, port)?;
+
+    println!("\nEmail configuration saved securely.");
+    println!("You can test the configuration using the 'test-email' command.");
+
+    Ok(())
+}
+
 // PasswordResetToken struct with a user identifier
 #[derive(Serialize, Deserialize, Clone)]
 struct PasswordResetToken {
