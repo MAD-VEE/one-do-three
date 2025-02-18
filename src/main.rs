@@ -172,6 +172,91 @@ impl SecureMasterKey {
     }
 }
 
+// Structure to hold SMTP credentials with metadata
+#[derive(Serialize, Deserialize)]
+struct SmtpCredentials {
+    // The email address/username for SMTP authentication
+    username: String,
+    // The password or app-specific password for SMTP
+    password: String,
+    // SMTP server hostname (e.g., smtp.gmail.com)
+    host: String,
+    // SMTP server port (typically 587 for TLS)
+    port: u16,
+    // When these credentials were last updated
+    last_updated: u64,
+}
+
+// Structure to manage secure email credentials
+pub struct SecureEmailManager {
+    // Keyring entry for storing credentials
+    keyring: Entry,
+    // Service name for identifying the application
+    service_name: String,
+}
+
+impl SecureEmailManager {
+    // Create a new instance of SecureEmailManager
+    pub fn new() -> Self {
+        let service_name = "task-manager-email".to_string();
+        Self {
+            // Create a new keyring entry for storing SMTP credentials
+            keyring: Entry::new(&service_name, "smtp-credentials")
+                .expect("Failed to create keyring entry"),
+            service_name,
+        }
+    }
+
+    // Store new SMTP credentials in the system keyring
+    pub fn store_credentials(
+        &self,
+        username: &str,
+        password: &str,
+        host: &str,
+        port: u16,
+    ) -> Result<(), String> {
+        // Create new credentials structure
+        let credentials = SmtpCredentials {
+            username: username.to_string(),
+            password: password.to_string(),
+            host: host.to_string(),
+            port,
+            last_updated: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        // Serialize credentials to JSON string
+        let creds_json = serde_json::to_string(&credentials)
+            .map_err(|e| format!("Failed to serialize credentials: {}", e))?;
+
+        // Store in system keyring
+        self.keyring
+            .set_password(&creds_json)
+            .map_err(|e| format!("Failed to store credentials: {}", e))
+    }
+
+    // Retrieve stored SMTP credentials from the system keyring
+    pub fn get_credentials(&self) -> Result<SmtpCredentials, String> {
+        // Get credentials JSON from keyring
+        let creds_json = self
+            .keyring
+            .get_password()
+            .map_err(|e| format!("Failed to retrieve credentials: {}", e))?;
+
+        // Deserialize JSON to SmtpCredentials structure
+        serde_json::from_str(&creds_json).map_err(|e| format!("Failed to parse credentials: {}", e))
+    }
+
+    // Delete stored credentials from the system keyring
+    pub fn delete_credentials(&self) -> Result<(), String> {
+        self.keyring
+            .delete_password()
+            .map_err(|e| format!("Failed to delete credentials: {}", e))
+    }
+}
+
 // PasswordResetToken struct with a user identifier
 #[derive(Serialize, Deserialize, Clone)]
 struct PasswordResetToken {
