@@ -370,6 +370,24 @@ pub fn setup_email_credentials() -> Result<(), String> {
     Ok(())
 }
 
+// Function to test email configuration
+pub fn test_email_configuration() -> Result<(), String> {
+    let email_manager = SecureEmailManager::new();
+    let creds = email_manager.get_credentials()?;
+
+    // Send a test email to the configured address
+    let test_body = "This is a test email to verify your SMTP configuration.";
+
+    send_email(
+        &creds.username,
+        "Task Manager - Email Configuration Test",
+        test_body,
+    )?;
+
+    println!("Test email sent successfully to: {}", creds.username);
+    Ok(())
+}
+
 // PasswordResetToken struct with a user identifier
 #[derive(Serialize, Deserialize, Clone)]
 struct PasswordResetToken {
