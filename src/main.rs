@@ -259,8 +259,9 @@ impl SecureEmailManager {
 
 // Function to send emails using securely stored credentials
 pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), String> {
-    use lettre::message::header::ContentType;
     use lettre::transport::smtp::authentication::Credentials;
+    use lettre::transport::smtp::client::{Tls, TlsParameters};
+    use lettre::transport::smtp::PoolConfig;
     use lettre::{Message, SmtpTransport, Transport};
 
     // Get instance of secure email manager
@@ -272,7 +273,7 @@ pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), Strin
     // Create email message
     let email = Message::builder()
         .from(
-            format!("Task Manager <{}>", creds.username)
+            format!("One-Do-Three <{}>", creds.username)
                 .parse()
                 .map_err(|e| format!("Invalid from address: {}", e))?,
         )
@@ -280,24 +281,39 @@ pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), Strin
             .parse()
             .map_err(|e| format!("Invalid to address: {}", e))?)
         .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
+        .header(lettre::message::header::ContentType::TEXT_PLAIN)
         .body(body.to_string())
         .map_err(|e| format!("Failed to create email: {}", e))?;
 
-    // Set up SMTP transport with credentials
+    // Configure TLS parameters
+    let tls_parameters = TlsParameters::builder(creds.host.clone())
+        .build()
+        .map_err(|e| format!("Failed to build TLS parameters: {}", e))?;
+
+    // Set up SMTP transport with explicit TLS configuration
     let mailer = SmtpTransport::relay(&creds.host)
         .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
-        .credentials(Credentials::new(creds.username, creds.password))
+        .credentials(Credentials::new(
+            creds.username.clone(),
+            creds.password.clone(),
+        ))
         .port(creds.port)
+        .tls(Tls::Required(tls_parameters))
+        .pool_config(PoolConfig::new().max_size(1))
         .timeout(Some(std::time::Duration::from_secs(10)))
         .build();
 
     // Send the email
-    mailer
-        .send(&email)
-        .map_err(|e| format!("Failed to send email: {}", e))?;
-
-    Ok(())
+    match mailer.send(&email) {
+        Ok(_) => {
+            println!("Email sent successfully to: {}", to_email);
+            Ok(())
+        }
+        Err(e) => {
+            // Provide more detailed error information
+            Err(format!("Failed to send email: {} (This might be due to network issues, incorrect credentials, or Gmail security settings. Please verify your App Password and Gmail settings)", e))
+        }
+    }
 }
 
 // Function to send password reset email using secure credentials
@@ -306,8 +322,8 @@ pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> 
     let email_body = format!(
         "Hello,\n\n\
         A password reset was requested for your One-Do-Three account.\n\n\
-        To reset your password, use the following command:\n\n\
-        confirm-reset {} YourNewPassword\n\n\
+        To reset your password, use the following token:\n\n\
+        {}\n\n\
         This token will expire in 30 minutes.\n\n\
         Security Tips:\n\
         - Choose a strong password with at least 8 characters\n\
@@ -315,8 +331,8 @@ pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> 
         - Include numbers and special characters\n\n\
         If you did not request this reset, please ignore this email and ensure \
         your account is secure.\n\n\
-        Best regards,\n\
-        Task Manager Team",
+        Colorful wishes,\n\
+        One-Do-Three Task Manager Team",
         reset_token.token
     );
 
@@ -374,6 +390,12 @@ pub fn setup_email_credentials() -> Result<(), String> {
 pub fn test_email_configuration() -> Result<(), String> {
     let email_manager = SecureEmailManager::new();
     let creds = email_manager.get_credentials()?;
+
+    println!("Testing email configuration with the following settings:");
+    println!("SMTP Server: {}", creds.host);
+    println!("SMTP Port: {}", creds.port);
+    println!("Username: {}", creds.username);
+    println!("Attempting to send test email...");
 
     // Send a test email to the configured address
     let test_body = "This is a test email to verify your SMTP configuration.";
@@ -754,62 +776,6 @@ fn validate_password(password: &str) -> Result<(), PasswordError> {
     Ok(())
 }
 
-// Function to send password reset email
-fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> {
-    // Configure email settings from environment or config file
-    let smtp_host =
-        std::env::var("SMTP_HOST").unwrap_or_else(|_| "smtp.yourdomain.com".to_string());
-    let smtp_username =
-        std::env::var("SMTP_USERNAME").unwrap_or_else(|_| "smtp_username".to_string());
-    let smtp_password =
-        std::env::var("SMTP_PASSWORD").unwrap_or_else(|_| "smtp_password".to_string());
-
-    // Create email message with better formatting
-    let email_body = format!(
-        "Hello,\n\n\
-        A password reset was requested for your account.\n\n\
-        Your password reset token is: {}\n\n\
-        This token will expire in 30 minutes.\n\n\
-        If you did not request this reset, please ignore this email.\n\n\
-        Best regards,\n\
-        Your Application Team",
-        reset_token.token
-    );
-
-    let email = Message::builder()
-        .from(
-            "noreply@yourdomain.com"
-                .parse()
-                .map_err(|e| format!("Invalid from address: {}", e))?,
-        )
-        .to(reset_token
-            .user_email
-            .parse()
-            .map_err(|e| format!("Invalid to address: {}", e))?)
-        .subject("Password Reset Request")
-        .header(ContentType::TEXT_PLAIN)
-        .body(email_body)
-        .map_err(|e| format!("Failed to create email: {}", e))?;
-
-    // Create SMTP transport with proper error handling
-    let creds = Credentials::new(smtp_username, smtp_password);
-
-    let mailer = SmtpTransport::relay(&smtp_host)
-        .map_err(|e| format!("Failed to create SMTP transport: {}", e))?
-        .credentials(creds)
-        .timeout(Some(std::time::Duration::from_secs(10))) // Add timeout
-        .build();
-
-    // Send email with detailed error handling
-    match mailer.send(&email) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!(
-            "Failed to send email: {}. Please check your SMTP configuration.",
-            e
-        )),
-    }
-}
-
 // Implement conversion from io::Error to TaskError
 impl From<io::Error> for TaskError {
     fn from(error: io::Error) -> Self {
@@ -1024,12 +990,213 @@ fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
     handle_user_creation(store, username, email, password)
 }
 
+// Forgot password handler
+fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
+    // First, check if email system is configured
+    if !check_email_configuration() {
+        return Err("Email system is not configured. Please contact administrator.".to_string());
+    }
+
+    println!("\n=== Password Reset ===");
+
+    // Get user's email
+    println!("Please enter your email address:");
+    let email = read_line().map_err(|e| format!("Error reading input: {}", e))?;
+    let email = email.trim();
+
+    // Validate email format
+    if !is_valid_email(email) {
+        return Err("Invalid email format. Please enter a valid email address.".to_string());
+    }
+
+    // Check if email exists in user database
+    let user_exists = store.users.values().any(|u| u.email == email);
+    if !user_exists {
+        // For security, don't reveal that the email doesn't exist
+        println!("If an account exists with this email, you will receive reset instructions.");
+        return Ok(());
+    }
+
+    // Generate a 6 digit reset token only for valid emails
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Uniform::new(0, 10))
+        .take(6)
+        .map(|d| d.to_string())
+        .collect();
+
+    // Find user by email
+    let user = store
+        .users
+        .values()
+        .find(|u| u.email == email)
+        .ok_or("No account found with this email address.")?;
+
+    // Store token securely
+    let token_manager = SecureTokenManager::new();
+    token_manager.store_token(email, &token)?;
+
+    // Send reset email with proper error handling
+    if let Err(e) = send_reset_token_email(email, &token) {
+        token_manager.clear_token()?; // Clean up token if email fails
+        return Err(format!("Failed to send reset email: {}", e));
+    }
+
+    println!("\nA reset token has been sent to your email.");
+    println!("Please enter the token to continue:");
+
+    // Get and verify token
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: u32 = 3;
+
+    while attempts < MAX_ATTEMPTS {
+        let input_token = read_line().map_err(|e| format!("Error reading input: {}", e))?;
+        let input_token = input_token.trim();
+
+        if token_manager.verify_token(email, input_token)? {
+            // Token verified, get new password
+            let new_password = get_new_password()?;
+
+            // Update user's password
+            if let Some(user) = store.users.values_mut().find(|u| u.email == email) {
+                user.password_hash =
+                    hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
+
+                // Save changes with proper error handling
+                save_user_store(store).map_err(|e| format!("Failed to save user data: {}", e))?;
+
+                // Clear the used token
+                token_manager.clear_token()?;
+
+                println!("\nPassword reset successful! You can now log in with your new password.");
+                return Ok(());
+            }
+        }
+
+        attempts += 1;
+        if attempts < MAX_ATTEMPTS {
+            println!(
+                "Invalid token. Please try again. {} attempts remaining.",
+                MAX_ATTEMPTS - attempts
+            );
+        } else {
+            token_manager.clear_token()?;
+            return Err("Too many invalid attempts. Please start over.".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+// Helper function for converting io::Error to String
+fn io_err_to_string(e: io::Error) -> String {
+    format!("IO error: {}", e)
+}
+
+// Email configuration check function
+fn check_email_configuration() -> bool {
+    // Use existing SecureEmailManager to check if credentials exist
+    let email_manager = SecureEmailManager::new();
+    email_manager.get_credentials().is_ok()
+}
+
+// Function to create and send reset token
+fn send_reset_token_email(email: &str, token: &str) -> Result<(), String> {
+    // Create a temporary PasswordResetToken structure
+    let reset_token = PasswordResetToken {
+        token: token.to_string(),
+        expires_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 1800, // 30 minutes expiration
+        user_email: email.to_string(),
+        username: "".to_string(), // We'll update this later
+    };
+
+    // Use the existing send_reset_email function
+    send_reset_email(&reset_token)
+}
+
+// Secure token management
+struct SecureTokenManager {
+    keyring: Entry,
+}
+
+impl SecureTokenManager {
+    fn new() -> Self {
+        Self {
+            keyring: Entry::new("one-do-three", "reset-tokens")
+                .expect("Failed to create keyring entry"),
+        }
+    }
+
+    // Store reset token securely
+    fn store_token(&self, email: &str, token: &str) -> Result<(), String> {
+        let token_data = format!("{}:{}", email, token);
+        self.keyring
+            .set_password(&token_data)
+            .map_err(|e| format!("Failed to store reset token: {}", e))
+    }
+
+    // Verify a reset token
+    fn verify_token(&self, email: &str, token: &str) -> Result<bool, String> {
+        match self.keyring.get_password() {
+            Ok(stored_data) => {
+                let parts: Vec<&str> = stored_data.split(':').collect();
+                if parts.len() != 2 {
+                    return Ok(false);
+                }
+                Ok(parts[0] == email && parts[1] == token)
+            }
+            Err(_) => Ok(false),
+        }
+    }
+
+    // Clear the token after use
+    fn clear_token(&self) -> Result<(), String> {
+        self.keyring
+            .delete_password()
+            .map_err(|e| format!("Failed to clear reset token: {}", e))
+    }
+}
+
+// Helper function to get and validate new password
+fn get_new_password() -> Result<String, String> {
+    println!("\nEnter your new password");
+    println!(
+        "(minimum 8 characters, must include uppercase, lowercase, number, and special char):"
+    );
+
+    let new_password = loop {
+        let password = read_password().map_err(|e| format!("Error reading password: {}", e))?;
+
+        match validate_password(&password) {
+            Ok(_) => break password,
+            Err(e) => {
+                println!("Password validation failed: {:?}", e);
+                println!("Please try again.");
+                continue;
+            }
+        }
+    };
+
+    // Confirm password
+    println!("\nConfirm your new password:");
+    let confirm_password = read_password().map_err(|e| format!("Error reading password: {}", e))?;
+
+    if new_password != confirm_password {
+        return Err("Passwords don't match. Please start over.".to_string());
+    }
+
+    Ok(new_password)
+}
+
 // Function to show initial options when starting the program
 fn show_initial_options() {
-    println!("\n=== Welcome to one-do-three ===");
+    println!("\n=== Welcome to One-Do-Three ===");
     println!("1. Login");
     println!("2. Register new account");
-    println!("3. Forgot password");
+    println!("3. Forgot password"); // This option needs to be implemented properly
     println!("4. Exit");
     println!("\nEnter your choice (1-4):");
 }
@@ -1126,7 +1293,6 @@ fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
 
         match read_line().unwrap().trim() {
             "1" => {
-                // Existing login logic
                 return authenticate_user(store);
             }
             "2" => {
@@ -1136,9 +1302,11 @@ fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
                 continue;
             }
             "3" => {
-                println!("\nEnter your email address:");
-                let email = read_line().unwrap();
-                // Handle password reset logic here
+                // Updated forgot password flow
+                match handle_forgot_password(store) {
+                    Ok(_) => println!("Password reset completed successfully."),
+                    Err(e) => println!("Password reset failed: {}", e),
+                }
                 continue;
             }
             "4" => {
@@ -2014,6 +2182,10 @@ fn main() {
                                 .arg(Arg::new("email").help("Your email address").required(true)),
                         )
                         .subcommand(
+                            Command::new("email-setup").about("Configure email settings securely"),
+                        )
+                        .subcommand(Command::new("test-email").about("Test email configuration"))
+                        .subcommand(
                             Command::new("confirm-reset")
                                 .about("Confirm password reset with token")
                                 .arg(
@@ -2473,6 +2645,20 @@ fn main() {
                             } else {
                                 println!("User not found.");
                             }
+                        }
+                        Some(("email-setup", _)) => {
+                            match setup_email_credentials() {
+                                Ok(_) => println!("Email configuration completed successfully."),
+                                Err(e) => println!("Failed to configure email: {}", e),
+                            }
+                            continue;
+                        }
+                        Some(("test-email", _)) => {
+                            match test_email_configuration() {
+                                Ok(_) => println!("Email configuration test successful!"),
+                                Err(e) => println!("Email configuration test failed: {}", e),
+                            }
+                            continue;
                         }
                         // Handle reset-passowrd command
                         Some(("reset-password", sub_matches)) => {
