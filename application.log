@@ -136,3 +136,14 @@
 [2025-02-19T00:07:22Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-19T00:07:51Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-19T00:08:17Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T10:32:52Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T10:46:55Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T10:47:00Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 11:47:00, details=Some("using cached credentials")
+[2025-02-19T10:47:55Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=bl***om, resource=task_file, success=false, timestamp=2025-02-19 11:47:55, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
+[2025-02-19T10:47:55Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=bl***om, resource=user_store, success=true, timestamp=2025-02-19 11:47:55, details=Some("Account successfully deleted")
+[2025-02-19T10:48:04Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T10:56:28Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T10:56:53Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=bl***om, resource=user_store, success=true, timestamp=2025-02-19 11:56:53, details=Some("starting user registration")
+[2025-02-19T10:56:55Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=bl***om, resource=user_store, success=true, timestamp=2025-02-19 11:56:55, details=Some("user created and store saved")
+[2025-02-19T10:57:42Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=bl***om, resource=task_file, success=false, timestamp=2025-02-19 11:57:42, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
+[2025-02-19T10:57:42Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=bl***om, resource=user_store, success=true, timestamp=2025-02-19 11:57:42, details=Some("Account successfully deleted")

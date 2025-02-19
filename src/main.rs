@@ -172,6 +172,126 @@ impl SecureMasterKey {
     }
 }
 
+// Structure to track account deletion status
+#[derive(Debug)]
+enum DeletionStatus {
+    Success,
+    Failed(String),
+    Cancelled,
+}
+
+// Function to handle account deletion process
+fn handle_account_deletion(
+    store: &mut UserStore,
+    username: &str,
+    password: &str,
+    cache: &SecurePasswordCache,
+) -> DeletionStatus {
+    // Validate deletion confirmation
+    println!("\n=== Account Deletion Warning ===");
+    println!("This action will:");
+    println!("1. Permanently delete all your tasks");
+    println!("2. Remove your account from the system");
+    println!("3. Log you out immediately");
+    println!("This action CANNOT be undone!");
+
+    // First confirmation step
+    println!("\nType 'DELETE' to confirm (or anything else to cancel):");
+    let confirmation = read_line().unwrap_or_default();
+    if confirmation.trim() != "DELETE" {
+        return DeletionStatus::Cancelled;
+    }
+
+    // Get user reference for validation
+    // Collect necessary user information before mutation
+    let user_info = match store.users.get(username) {
+        Some(user) => {
+            // Create a tuple with the information we need
+            (
+                user.password_hash.clone(),
+                user.email.clone(),
+                user.tasks_file.clone(),
+            )
+        }
+        None => return DeletionStatus::Failed("User not found".to_string()),
+    };
+
+    let (stored_password_hash, user_email, task_file) = user_info;
+
+    // Password confirmation step
+    println!("\nPlease enter your password to confirm deletion:");
+    let confirm_password = match read_password() {
+        Ok(pass) => pass,
+        Err(e) => return DeletionStatus::Failed(format!("Failed to read password: {}", e)),
+    };
+
+    // Verify password
+    let password_hash = hex::encode(derive_key_from_passphrase(&confirm_password, &store.salt));
+    if stored_password_hash != password_hash {
+        return DeletionStatus::Failed("Incorrect password".to_string());
+    }
+
+    // Final confirmation step
+    println!("\nFINAL WARNING: Account deletion is irreversible!");
+    println!("Type 'YES' to permanently delete your account:");
+    let final_confirmation = read_line().unwrap_or_default();
+    if final_confirmation.trim() != "YES" {
+        return DeletionStatus::Cancelled;
+    }
+
+    // Begin deletion process
+    // 1. Remove user's task file
+    if let Err(e) = std::fs::remove_file(&task_file) {
+        // Log error but continue with deletion
+        log_data_operation(
+            "delete_account",
+            username,
+            "task_file",
+            false,
+            Some(&format!("Failed to remove task file: {}", e)),
+        );
+    }
+
+    // 2. Remove user from store
+    store.users.remove(username);
+
+    // 3. Remove any password reset tokens for this user
+    store
+        .reset_tokens
+        .retain(|_, token| token.username != username);
+
+    // 4. Remove any reset attempts tracking
+    store.reset_attempts.remove(&user_email);
+
+    // 5. Save the updated store
+    if let Err(e) = save_user_store(store) {
+        return DeletionStatus::Failed(format!("Failed to save user store: {}", e));
+    }
+
+    // 6. Clear password cache
+    if let Err(e) = cache.clear_cache() {
+        // Log error but continue
+        log_data_operation(
+            "delete_account",
+            username,
+            "password_cache",
+            false,
+            Some(&format!("Failed to clear password cache: {}", e)),
+        );
+    }
+
+    // Log successful deletion
+    log_data_operation(
+        "delete_account",
+        username,
+        "user_store",
+        true,
+        Some("Account successfully deleted"),
+    );
+
+    DeletionStatus::Success
+}
+
 // Structure to hold SMTP credentials with metadata
 #[derive(Serialize, Deserialize)]
 struct SmtpCredentials {
@@ -1446,7 +1566,22 @@ fn show_help_information() {
     println!("  delete           - Delete a task");
     println!("  profile          - View or update profile information");
     println!("  change-password  - Change your password");
+    println!("  delete-account   - Permanently delete your account");
     println!("  logout           - Log out of current session");
+
+    // List Command Options
+    println!("\nList Command Options:");
+    println!("  list --filter high       - Show only high priority tasks");
+    println!("  list --filter completed  - Show only completed tasks");
+    println!("  list --sort priority     - Sort tasks by priority");
+    println!("  list --sort name         - Sort tasks by name");
+
+    // Task Management Notes
+    println!("\nTask Management Notes:");
+    println!("  - Tasks can have high, medium, or low priority");
+    println!("  - Each task has a name, description, priority, and completion status");
+    println!("  - Task names must be unique");
+    println!("  - All changes are automatically saved");
 
     // Profile Command Details
     println!("\nProfile Command Usage:");
@@ -1462,19 +1597,13 @@ fn show_help_information() {
     println!("    * Last login time");
     println!("    * Last activity time");
 
-    // List Command Options
-    println!("\nList Command Options:");
-    println!("  list --filter high       - Show only high priority tasks");
-    println!("  list --filter completed  - Show only completed tasks");
-    println!("  list --sort priority     - Sort tasks by priority");
-    println!("  list --sort name         - Sort tasks by name");
-
-    // Task Management Notes
-    println!("\nTask Management Notes:");
-    println!("  - Tasks can have high, medium, or low priority");
-    println!("  - Each task has a name, description, priority, and completion status");
-    println!("  - Task names must be unique");
-    println!("  - All changes are automatically saved");
+    // Account Management Section
+    println!("\nAccount Management:");
+    println!("  change-password            - Change your account password");
+    println!("  delete-account             - Delete your account permanently");
+    println!("  \u{2022} Requires multiple confirmations");
+    println!("  \u{2022} Deletes all tasks and user data");
+    println!("  \u{2022} Action cannot be undone");
 
     // Security Notes
     println!("\nSecurity Notes:");
@@ -1510,6 +1639,20 @@ fn show_command_help(command: &str) {
             println!("  - Task name (must be unique)");
             println!("  - Description (optional)");
             println!("  - Priority (High/Medium/Low)");
+        }
+        "delete-account" => {
+            println!("\n=== Delete Account Command Help ===");
+            println!("\nUsage:");
+            println!("  delete-account  - Start account deletion process");
+            println!("\nThis command will:");
+            println!("  1. Ask for confirmation by typing 'DELETE'");
+            println!("  2. Require password verification");
+            println!("  3. Require final confirmation by typing 'YES'");
+            println!("\nWarnings:");
+            println!("  - This action permanently deletes your account");
+            println!("  - All tasks and user data will be erased");
+            println!("  - This action cannot be undone");
+            println!("  - You will be logged out immediately after deletion");
         }
         // Add other command-specific help sections as needed
         _ => {
@@ -3068,77 +3211,30 @@ fn main() {
                             }
                         }
                         // Handle delete-account command
-                        Some(("delete-account", sub_matches)) => {
-                            // Check for session timeout before executing command
+                        Some(("delete-account", _)) => {
+                            // Check for session timeout
                             if let Ok(None) = cache.get_cached_password() {
                                 println!("Session expired due to inactivity. Please log in again.");
                                 continue;
                             }
 
-                            // Logging the delete-account operation
-                            log_data_operation(
-                                "delete_account",
-                                &username,
-                                "user_store",
-                                true,
-                                None,
-                            );
-
-                            let confirmation = sub_matches.get_one::<String>("confirm").unwrap();
-
-                            if confirmation != "DELETE" {
-                                println!("Account deletion cancelled. You must type 'DELETE' to confirm.");
-                                return;
-                            }
-
-                            println!("Please enter your password to confirm account deletion:");
-                            let confirm_password = read_password().unwrap();
-
-                            if let Some(user) = store.users.get(&username) {
-                                let password_hash = hex::encode(derive_key_from_passphrase(
-                                    &confirm_password,
-                                    &store.salt,
-                                ));
-                                if user.password_hash != password_hash {
-                                    println!("Incorrect password. Account deletion cancelled.");
-                                    return;
+                            // Handle the deletion process
+                            match handle_account_deletion(&mut store, &username, &password, &cache)
+                            {
+                                DeletionStatus::Success => {
+                                    println!("\nAccount successfully deleted.");
+                                    println!("You will now be logged out.");
+                                    continue 'main; // Go back to the inital options menu after successful deletion
                                 }
-
-                                // Add final confirmation
-                                println!("\nWARNING: This action cannot be undone!");
-                                println!("All your tasks and data will be permanently deleted.");
-                                println!("Type 'YES' to proceed with account deletion:");
-
-                                let final_confirmation = read_line().unwrap();
-                                if final_confirmation.trim() != "YES" {
-                                    println!("Account deletion cancelled.");
-                                    return;
+                                DeletionStatus::Failed(reason) => {
+                                    println!("\nAccount deletion failed: {}", reason);
+                                    println!("No changes were made to your account.");
+                                    continue;
                                 }
-
-                                // Remove user's task file
-                                if let Err(e) = std::fs::remove_file(&user.tasks_file) {
-                                    println!("Warning: Failed to remove task file: {}", e);
-                                }
-
-                                // Remove user from store
-                                store.users.remove(&username);
-
-                                // Remove any reset tokens for this user
-                                store
-                                    .reset_tokens
-                                    .retain(|_, token| token.username != username);
-
-                                // Save the updated store
-                                match save_user_store(&store) {
-                                    Ok(_) => {
-                                        // Clear password cache
-                                        let cache = SecurePasswordCache::new();
-                                        let _ = cache.clear_cache();
-
-                                        println!("Account successfully deleted.");
-                                        process::exit(0);
-                                    }
-                                    Err(e) => println!("Error saving changes: {}", e),
+                                DeletionStatus::Cancelled => {
+                                    println!("\nAccount deletion cancelled.");
+                                    println!("No changes were made to your account.");
+                                    continue;
                                 }
                             }
                         }
