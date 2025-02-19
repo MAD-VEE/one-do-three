@@ -187,12 +187,141 @@ struct SmtpCredentials {
     last_updated: u64,
 }
 
+// Structure to manage admin credentials securely
+struct SecureAdminManager {
+    keyring: Entry,
+}
+
+impl SecureAdminManager {
+    fn new() -> Self {
+        Self {
+            // Use a separate keyring entry for admin credentials
+            keyring: Entry::new("one-do-three", "admin-credentials")
+                .expect("Failed to create keyring entry"),
+        }
+    }
+
+    // Check if admin credentials are initialized
+    fn is_initialized(&self) -> bool {
+        self.keyring.get_password().is_ok()
+    }
+
+    // Initialize admin credentials
+    fn initialize_admin(&self, password: &str) -> Result<(), String> {
+        if self.is_initialized() {
+            return Err("Admin credentials already initialized".to_string());
+        }
+
+        // Generate a secure salt for admin password
+        let salt = generate_random_salt();
+
+        // Hash the password with the salt
+        let password_hash = derive_key_from_passphrase(password, &salt);
+
+        // Store both salt and hash
+        let admin_data = format!("{}:{}", hex::encode(&salt), hex::encode(password_hash));
+
+        self.keyring
+            .set_password(&admin_data)
+            .map_err(|e| format!("Failed to store admin credentials: {}", e))
+    }
+
+    // Verify admin password
+    fn verify_admin(&self, password: &str) -> Result<bool, String> {
+        let stored_data = self
+            .keyring
+            .get_password()
+            .map_err(|e| format!("Failed to retrieve admin credentials: {}", e))?;
+
+        let parts: Vec<&str> = stored_data.split(':').collect();
+        if parts.len() != 2 {
+            return Err("Invalid admin credential format".to_string());
+        }
+
+        let salt = hex::decode(parts[0]).map_err(|e| format!("Failed to decode salt: {}", e))?;
+        let stored_hash = parts[1];
+
+        let test_hash = hex::encode(derive_key_from_passphrase(password, &salt));
+
+        Ok(test_hash == stored_hash)
+    }
+
+    // Change admin password
+    fn change_admin_password(
+        &self,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<(), String> {
+        // Verify current password first
+        if !self.verify_admin(current_password)? {
+            return Err("Current password is incorrect".to_string());
+        }
+
+        // Generate new salt
+        let new_salt = generate_random_salt();
+
+        // Hash the new password
+        let new_hash = derive_key_from_passphrase(new_password, &new_salt);
+
+        // Store new credentials
+        let admin_data = format!("{}:{}", hex::encode(&new_salt), hex::encode(new_hash));
+
+        self.keyring
+            .set_password(&admin_data)
+            .map_err(|e| format!("Failed to update admin credentials: {}", e))
+    }
+}
+
 // Structure to manage secure email credentials
 pub struct SecureEmailManager {
     // Keyring entry for storing credentials
     keyring: Entry,
     // Service name for identifying the application
     service_name: String,
+}
+
+// Function to initialize admin credentials
+pub fn initialize_admin_credentials() -> Result<(), String> {
+    let admin_manager = SecureAdminManager::new();
+
+    if admin_manager.is_initialized() {
+        println!("Admin credentials are already initialized.");
+        return Ok(());
+    }
+
+    println!("\n=== Initial Admin Setup ===");
+    println!("Please set the administrator password.");
+    println!("This password will be required for system configuration changes.");
+
+    let password = loop {
+        println!("\nEnter admin password (min 12 chars, must include uppercase, lowercase, number, and special char):");
+        let pwd = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+        // Extra strong validation for admin password
+        if pwd.len() < 12 {
+            println!("Admin password must be at least 12 characters long.");
+            continue;
+        }
+
+        if let Err(e) = validate_password(&pwd) {
+            println!("Password validation failed: {:?}", e);
+            continue;
+        }
+
+        println!("Confirm password:");
+        let confirm = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+        if pwd != confirm {
+            println!("Passwords don't match. Please try again.");
+            continue;
+        }
+
+        break pwd;
+    };
+
+    admin_manager.initialize_admin(&password)?;
+    println!("\nAdmin credentials initialized successfully!");
+    Ok(())
 }
 
 impl SecureEmailManager {
@@ -346,42 +475,146 @@ pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> 
 
 // Add a command to set up email credentials
 pub fn setup_email_credentials() -> Result<(), String> {
-    use rpassword::read_password;
+    let admin_manager = SecureAdminManager::new();
+
+    // Check if admin credentials are initialized
+    if !admin_manager.is_initialized() {
+        return Err(
+            "Admin credentials not initialized. Please set up admin password first.".to_string(),
+        );
+    }
+
+    println!("\n=== Admin Authentication Required ===");
+    println!("Please enter admin password to modify email settings:");
+
+    // Limited number of admin password attempts
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut attempts = 0;
+
+    while attempts < MAX_ATTEMPTS {
+        let admin_password =
+            read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+        if admin_manager.verify_admin(&admin_password)? {
+            break;
+        }
+
+        attempts += 1;
+        if attempts < MAX_ATTEMPTS {
+            println!(
+                "Invalid password. {} attempts remaining.",
+                MAX_ATTEMPTS - attempts
+            );
+        } else {
+            return Err("Too many invalid attempts. Please try again later.".to_string());
+        }
+    }
 
     println!("\n=== Email Configuration Setup ===");
 
-    // Get SMTP server details
-    println!("Enter SMTP server address (e.g., smtp.gmail.com):");
-    let mut host = String::new();
-    std::io::stdin()
-        .read_line(&mut host)
-        .map_err(|e| format!("Failed to read input: {}", e))?;
-    let host = host.trim();
+    // Get and validate SMTP server
+    let host = loop {
+        println!("Enter SMTP server address (e.g., smtp.gmail.com):");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("Failed to read input: {}", e))?;
+        let input = input.trim();
 
-    println!("Enter SMTP port (default: 587):");
-    let mut port_str = String::new();
-    std::io::stdin()
-        .read_line(&mut port_str)
-        .map_err(|e| format!("Failed to read input: {}", e))?;
-    let port = port_str.trim().parse::<u16>().unwrap_or(587);
+        if input.is_empty() {
+            println!("SMTP server cannot be empty. Please try again.");
+            continue;
+        }
 
-    // Get email credentials
-    println!("Enter email address:");
-    let mut username = String::new();
-    std::io::stdin()
-        .read_line(&mut username)
-        .map_err(|e| format!("Failed to read input: {}", e))?;
-    let username = username.trim();
+        // Basic domain validation
+        if !input.contains('.') || input.contains(' ') {
+            println!("Invalid SMTP server format. Please enter a valid domain.");
+            continue;
+        }
 
-    println!("Enter email password or app-specific password:");
-    let password = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+        break input.to_string();
+    };
+
+    // Get and validate SMTP port
+    let port = loop {
+        println!("Enter SMTP port (default: 587):");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("Failed to read input: {}", e))?;
+        let input = input.trim();
+
+        if input.is_empty() {
+            break 587; // Default port
+        }
+
+        match input.parse::<u16>() {
+            Ok(p) if p > 0 => break p,
+            _ => {
+                println!("Invalid port number. Please enter a number between 1 and 65535.");
+                continue;
+            }
+        }
+    };
+
+    // Get and validate email address
+    let username = loop {
+        println!("Enter email address:");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| format!("Failed to read input: {}", e))?;
+        let input = input.trim();
+
+        if !is_valid_email(input) {
+            println!("Invalid email format. Please enter a valid email address.");
+            continue;
+        }
+
+        break input.to_string();
+    };
+
+    // Get and confirm password
+    let password = loop {
+        println!("Enter email password or app-specific password:");
+        let pass = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+        if pass.trim().is_empty() {
+            println!("Password cannot be empty. Please try again.");
+            continue;
+        }
+
+        // For Gmail app passwords, verify the format (16 characters)
+        if host.contains("gmail.com") && pass.len() != 16 {
+            println!("Warning: Gmail app passwords are typically 16 characters long.");
+            println!("Are you sure you want to use this password? (y/n)");
+            let mut confirm = String::new();
+            std::io::stdin()
+                .read_line(&mut confirm)
+                .map_err(|e| format!("Failed to read input: {}", e))?;
+            if confirm.trim().to_lowercase() != "y" {
+                continue;
+            }
+        }
+
+        break pass;
+    };
 
     // Store credentials securely
     let email_manager = SecureEmailManager::new();
-    email_manager.store_credentials(username, &password, host, port)?;
+    email_manager.store_credentials(&username, &password, &host, port)?;
 
     println!("\nEmail configuration saved securely.");
-    println!("You can test the configuration using the 'test-email' command.");
+    println!("Important: Please run 'test-email' to verify your configuration.");
+
+    if host.contains("gmail.com") {
+        println!("\nGmail-specific notes:");
+        println!("1. Make sure 2-Step Verification is enabled in your Google Account");
+        println!(
+            "2. The password should be an App Password generated from Google Account settings"
+        );
+        println!("3. If the test fails, please verify your App Password and try again");
+    }
 
     Ok(())
 }
@@ -1988,6 +2221,29 @@ fn handle_command(
 }
 
 fn main() {
+    // Admin credentials setup and email configuration setup
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "--admin-setup" => {
+                match initialize_admin_credentials() {
+                    Ok(_) => println!("Admin credentials initialized successfully!"),
+                    Err(e) => println!("Failed to initialize admin credentials: {}", e),
+                }
+                return;
+            }
+            "--email-setup" => {
+                match setup_email_credentials() {
+                    Ok(_) => println!("Email configuration completed successfully!"),
+                    Err(e) => println!("Failed to configure email: {}", e),
+                }
+                return;
+            }
+            _ => {}
+        }
+    }
+
     // Initialize logging system
     if let Err(e) = initialize_logging() {
         eprintln!("Failed to initialize logging: {}", e);
