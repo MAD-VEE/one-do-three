@@ -147,3 +147,19 @@
 [2025-02-19T10:56:55Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=bl***om, resource=user_store, success=true, timestamp=2025-02-19 11:56:55, details=Some("user created and store saved")
 [2025-02-19T10:57:42Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=bl***om, resource=task_file, success=false, timestamp=2025-02-19 11:57:42, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
 [2025-02-19T10:57:42Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=bl***om, resource=user_store, success=true, timestamp=2025-02-19 11:57:42, details=Some("Account successfully deleted")
+[2025-02-19T10:59:26Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:09:01Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:09:47Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:09:47, details=Some("starting user registration")
+[2025-02-19T11:09:48Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:09:48, details=Some("user created and store saved")
+[2025-02-19T11:09:51Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 12:09:51, details=Some("using cached credentials")
+[2025-02-19T11:11:54Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=****, resource=blah, success=true, timestamp=2025-02-19 12:11:54, details=None
+[2025-02-19T11:12:12Z INFO  one_do_three one_do_three] Removed orphaned task file: user_6c059472a220251b.dat
+[2025-02-19T11:12:12Z INFO  one_do_three one_do_three] Removed orphaned task file: user_95bb6f66e72ed693.dat
+[2025-02-19T11:12:12Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:12:12, details=Some("Account successfully deleted")
+[2025-02-19T11:12:48Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=****, resource=test, success=true, timestamp=2025-02-19 12:12:48, details=None
+[2025-02-19T11:13:14Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:13:14, details=Some("starting user registration")
+[2025-02-19T11:13:15Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:13:15, details=Some("user created and store saved")
+[2025-02-19T11:13:33Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=****, resource=test, success=true, timestamp=2025-02-19 12:13:33, details=None
+[2025-02-19T11:13:48Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:13:48, details=Some("Account successfully deleted")
+[2025-02-19T11:18:03Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:18:45Z INFO  one_do_three one_do_three] Data operation: op=change_password, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:18:45, details=Some("Password changed successfully")

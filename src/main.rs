@@ -187,6 +187,13 @@ fn handle_account_deletion(
     password: &str,
     cache: &SecurePasswordCache,
 ) -> DeletionStatus {
+    // Initialize cleanup status
+    let mut cleanup_status = CleanupStatus {
+        task_file_removed: false,
+        cache_cleared: false,
+        store_saved: false,
+    };
+
     // Validate deletion confirmation
     println!("\n=== Account Deletion Warning ===");
     println!("This action will:");
@@ -252,23 +259,28 @@ fn handle_account_deletion(
         );
     }
 
-    // 2. Remove user from store
+    // 2. Clean up any orphaned task files
+    if let Err(e) = cleanup_user_tasks(username, store) {
+        error!("Failed to clean up orphaned task files: {}", e);
+    }
+
+    // 3. Remove user from store
     store.users.remove(username);
 
-    // 3. Remove any password reset tokens for this user
+    // 4. Remove any password reset tokens for this user
     store
         .reset_tokens
         .retain(|_, token| token.username != username);
 
-    // 4. Remove any reset attempts tracking
+    // 5. Remove any reset attempts tracking
     store.reset_attempts.remove(&user_email);
 
-    // 5. Save the updated store
+    // 6. Save the updated store
     if let Err(e) = save_user_store(store) {
         return DeletionStatus::Failed(format!("Failed to save user store: {}", e));
     }
 
-    // 6. Clear password cache
+    // 7. Clear password cache
     if let Err(e) = cache.clear_cache() {
         // Log error but continue
         log_data_operation(
@@ -289,7 +301,167 @@ fn handle_account_deletion(
         Some("Account successfully deleted"),
     );
 
-    DeletionStatus::Success
+    // Return success if critical operations succeeded
+    if cleanup_status.store_saved {
+        DeletionStatus::Success
+    } else {
+        DeletionStatus::Failed("Critical cleanup operations failed".to_string())
+    }
+}
+
+// Structure to track cleanup status
+#[derive(Debug)]
+struct CleanupStatus {
+    task_file_removed: bool,
+    cache_cleared: bool,
+    store_saved: bool,
+}
+
+// Function to handle graceful program exit with cleanup
+fn handle_program_exit(cleanup_status: &CleanupStatus) -> i32 {
+    // Log any cleanup failures
+    if !cleanup_status.task_file_removed {
+        error!("Failed to remove all task files during cleanup");
+    }
+    if !cleanup_status.cache_cleared {
+        error!("Failed to clear password cache during cleanup");
+    }
+    if !cleanup_status.store_saved {
+        error!("Failed to save user store during cleanup");
+    }
+
+    // Determine exit code based on cleanup status
+    if cleanup_status.task_file_removed
+        && cleanup_status.cache_cleared
+        && cleanup_status.store_saved
+    {
+        0 // Successful cleanup
+    } else {
+        1 // Cleanup had some failures
+    }
+}
+
+// Function to clean up user's task files
+fn cleanup_user_tasks(username: &str, store: &UserStore) -> Result<(), io::Error> {
+    // Create set of valid task files (files belonging to current users)
+    let valid_files: HashSet<String> = store.users.values().map(|u| u.tasks_file.clone()).collect();
+
+    // Scan tasks directory for cleanup
+    let tasks_dir = Path::new("tasks");
+    if !tasks_dir.exists() {
+        return Ok(());
+    }
+
+    // Read directory entries
+    for entry in std::fs::read_dir(tasks_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Check if this is a file and get its filename
+        if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
+            let full_path = format!("tasks/{}", filename);
+
+            // If file doesn't belong to any current user, remove it
+            if !valid_files.contains(&full_path) {
+                std::fs::remove_file(&path)?;
+                info!("Removed orphaned task file: {}", filename);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// Function to handle the interactive password change process
+// Takes mutable references to both UserStore and the current User
+// Returns Result indicating success or failure with error message
+fn handle_password_change(
+    store: &mut UserStore,
+    username: &str,
+    cache: &SecurePasswordCache,
+) -> Result<(), String> {
+    // First, get a reference to the user
+    let user = store.users.get(username).ok_or("User not found")?;
+
+    println!("\n=== Password Change ===");
+
+    // Get current password for verification
+    println!("Enter your current password:");
+    let current_password =
+        read_password().map_err(|e| format!("Failed to read current password: {}", e))?;
+
+    // Verify current password by comparing hashes
+    let current_hash = hex::encode(derive_key_from_passphrase(&current_password, &store.salt));
+    if current_hash != user.password_hash {
+        return Err("Current password is incorrect".to_string());
+    }
+
+    // Get and validate new password
+    println!("\nEnter new password");
+    println!("Requirements:");
+    println!("- Minimum 8 characters");
+    println!("- At least one uppercase letter");
+    println!("- At least one lowercase letter");
+    println!("- At least one number");
+    println!("- At least one special character");
+
+    let new_password = loop {
+        let password =
+            read_password().map_err(|e| format!("Failed to read new password: {}", e))?;
+
+        // Validate password strength
+        match validate_password(&password) {
+            Ok(_) => {
+                // Check if new password is different from current
+                if password == current_password {
+                    println!("New password must be different from current password");
+                    continue;
+                }
+                break password;
+            }
+            Err(e) => {
+                println!("Password validation failed: {:?}", e);
+                println!("Please try again.");
+                continue;
+            }
+        }
+    };
+
+    // Confirm new password
+    println!("\nConfirm new password:");
+    let confirm_password =
+        read_password().map_err(|e| format!("Failed to read password confirmation: {}", e))?;
+
+    if new_password != confirm_password {
+        return Err("Passwords don't match".to_string());
+    }
+
+    // Get mutable reference to user and update password
+    if let Some(user) = store.users.get_mut(username) {
+        // Update the password hash
+        user.password_hash = hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
+
+        // Log the password change event
+        log_data_operation(
+            "change_password",
+            username,
+            "user_store",
+            true,
+            Some("Password changed successfully"),
+        );
+
+        // Update the cached password
+        cache
+            .cache_password(username, &new_password)
+            .map_err(|e| format!("Failed to update password cache: {}", e))?;
+
+        // Save the updated user store
+        save_user_store(store).map_err(|e| format!("Failed to save user store: {}", e))?;
+
+        Ok(())
+    } else {
+        Err("Failed to update password: User not found".to_string())
+    }
 }
 
 // Structure to hold SMTP credentials with metadata
@@ -3004,45 +3176,22 @@ fn main() {
                             }
                         }
                         // Handle change-password command
-                        Some(("change-password", sub_matches)) => {
-                            // Check for session timeout before executing command
+                        Some(("change-password", _)) => {
+                            // Check for session timeout
                             if let Ok(None) = cache.get_cached_password() {
                                 println!("Session expired due to inactivity. Please log in again.");
                                 continue;
                             }
 
-                            let old_password =
-                                sub_matches.get_one::<String>("old-password").unwrap();
-                            let new_password =
-                                sub_matches.get_one::<String>("new-password").unwrap();
-
-                            // Get store's salt before mutable borrow
-                            let store_salt = store.salt.clone();
-
-                            if let Some(user) = store.users.get_mut(&username) {
-                                match user.change_password(old_password, new_password, &store_salt)
-                                {
-                                    Ok(_) => {
-                                        cache
-                                            .cache_password(&username, new_password)
-                                            .unwrap_or_else(|e| {
-                                                println!(
-                                                    "Warning: Failed to update password cache: {}",
-                                                    e
-                                                );
-                                            });
-
-                                        match save_user_store(&store) {
-                                            Ok(_) => println!("Password changed successfully."),
-                                            Err(e) => {
-                                                println!("Error saving password change: {}", e)
-                                            }
-                                        }
-                                    }
-                                    Err(e) => println!("Failed to change password: {}", e),
+                            // Handle the password change process
+                            match handle_password_change(&mut store, &username, &cache) {
+                                Ok(_) => {
+                                    println!("Password changed successfully!");
+                                    println!("Please use your new password for future logins.");
                                 }
-                            } else {
-                                println!("User not found.");
+                                Err(e) => {
+                                    println!("Failed to change password: {}", e);
+                                }
                             }
                         }
                         Some(("email-setup", _)) => {
