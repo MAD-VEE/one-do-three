@@ -50,7 +50,8 @@ struct Task {
 // Structure for storing password with timestamp in keyring
 #[derive(Serialize, Deserialize)]
 struct CachedPassword {
-    username: String,
+    username: String,            // Store original username
+    username_normalized: String, // Add normalized version for lookups
     password: String,
     timestamp: u64,
 }
@@ -58,7 +59,8 @@ struct CachedPassword {
 // Represents a single user with their authentication details and task file location
 #[derive(Serialize, Deserialize, Debug)]
 struct User {
-    username: String,
+    username: String,            // Original username as entered by user (for display)
+    username_normalized: String, // Lowercase version for lookups and comparisons
     email: String,
     password_hash: String,
     created_at: u64,
@@ -279,6 +281,7 @@ fn handle_account_deletion(
     if let Err(e) = save_user_store(store) {
         return DeletionStatus::Failed(format!("Failed to save user store: {}", e));
     }
+    cleanup_status.store_saved = true;
 
     // 7. Clear password cache
     if let Err(e) = cache.clear_cache() {
@@ -977,6 +980,18 @@ impl UserStore {
         // Create tasks directory if it doesn't exist
         std::fs::create_dir_all("tasks")?;
 
+        // Preserve original username and create normalized version for lookups
+        let original_username = username.trim().to_string(); // Preserve original case
+        let username_normalized = original_username.to_lowercase(); // Normalize for lookups
+
+        // Check if normalized username already exists
+        if self.users.contains_key(&username_normalized) {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "Username already exists",
+            ));
+        }
+
         // Get current timestamp for user creation and last login times
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -988,21 +1003,20 @@ impl UserStore {
         let password_hash_hex = hex::encode(password_hash);
 
         // Create new User struct with initial values
-        // Note: tasks_file is temporarily empty, will be set after user creation
         let user = User {
-            username: username.clone(), // Clone username as we need it for HashMap key
+            username: original_username, // Store the original case
+            username_normalized: username_normalized.clone(), // Store normalized version
             email,
             password_hash: password_hash_hex,
             created_at: current_time,
             last_login: current_time,
             failed_attempts: 0,
             last_failed_attempt: 0,
-            tasks_file: String::new(), // Temporarily empty, will be set below
+            tasks_file: String::new(),
             last_activity: current_time,
         };
 
         // Generate secure filename for user's tasks
-        // This creates a hash-based filename to prevent information disclosure
         let mut user = user;
         match user.generate_task_filename() {
             Ok(secure_filename) => {
@@ -1016,8 +1030,8 @@ impl UserStore {
             }
         }
 
-        // Insert the new user into the HashMap
-        self.users.insert(username, user);
+        // Insert the new user into the HashMap using normalized username as key
+        self.users.insert(username_normalized, user);
 
         // Save store immediately after adding user to persist changes
         save_user_store(self)?;
@@ -1029,7 +1043,6 @@ impl UserStore {
     // Takes a reference to username and returns an Option containing a reference to the User
     // Returns None if user doesn't exist
     pub fn get_user(&self, username: &str) -> Option<&User> {
-        // Convert username to lowercase for case-insensitive lookup
         let normalized_username = username.trim().to_lowercase();
         self.users.get(&normalized_username)
     }
@@ -1098,8 +1111,10 @@ impl SecurePasswordCache {
 
     // Cache a password in the system keyring and update timestamp
     fn cache_password(&self, username: &str, password: &str) -> io::Result<()> {
+        let original_username = username.trim().to_string();
         let cached = CachedPassword {
-            username: username.to_string(),
+            username: original_username.clone(),
+            username_normalized: original_username.to_lowercase(),
             password: password.to_string(),
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -1133,7 +1148,7 @@ impl SecurePasswordCache {
                     Ok(None)
                 } else {
                     // Do NOT update timestamp here - let it expire naturally
-                    Ok(Some((cached.username, cached.password)))
+                    Ok(Some((cached.username, cached.password))) // Return original username case
                 }
             }
             Err(_) => Ok(None),
@@ -1456,7 +1471,7 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
     }
 }
 
-// Function to handle interactive user registration
+// Function to handle interactive user registration with proper cache clearing
 fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
     // Create a new instance of SecurePasswordCache
     let cache = SecurePasswordCache::new();
@@ -1590,38 +1605,38 @@ fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
 }
 
 // Forgot password handler
+// Function to handle the complete password reset flow in an interactive manner
+// This replaces the need for a separate confirm-reset command
+// Takes a mutable reference to UserStore to allow password updates
+// Returns Result to properly handle and propagate errors
 fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
-    // First, check if email system is configured
+    println!("\n=== Password Reset ===");
+
+    // First verify that the email system is properly configured
+    // This prevents starting the reset process if emails can't be sent
     if !check_email_configuration() {
         return Err("Email system is not configured. Please contact administrator.".to_string());
     }
 
-    println!("\n=== Password Reset ===");
-
-    // Get user's email
+    // Get and validate user's email address
     println!("Please enter your email address:");
     let email = read_line().map_err(|e| format!("Error reading input: {}", e))?;
     let email = email.trim();
 
-    // Validate email format
+    // Validate email format before proceeding
     if !is_valid_email(email) {
         return Err("Invalid email format. Please enter a valid email address.".to_string());
     }
 
-    // Check if email exists in user database
+    // Check if the email exists in our user database
+    // We don't reveal to the user whether the email exists for security
     let user_exists = store.users.values().any(|u| u.email == email);
     if !user_exists {
-        // For security, don't reveal that the email doesn't exist
+        // Send the same message regardless of whether email exists
+        // This prevents email enumeration attacks
         println!("If an account exists with this email, you will receive reset instructions.");
         return Ok(());
     }
-
-    // Generate a 6 digit reset token only for valid emails
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Uniform::new(0, 10))
-        .take(6)
-        .map(|d| d.to_string())
-        .collect();
 
     // Find user by email
     let user = store
@@ -1630,47 +1645,90 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
         .find(|u| u.email == email)
         .ok_or("No account found with this email address.")?;
 
-    // Store token securely
+    // Clone the username for later use
+    let username = user.username.clone();
+
+    // Generate a 6-digit numeric reset token onlt for valid emails
+    // Using numeric tokens as they're easier for users to enter
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Uniform::new(0, 10))
+        .take(6)
+        .map(|d| d.to_string())
+        .collect();
+
+    // Create an instance of token manager to handle secure token storage
     let token_manager = SecureTokenManager::new();
+    // Store the generated token securely
+    // This associates the token with the user's email
     token_manager.store_token(email, &token)?;
 
     // Send reset email with proper error handling
-    if let Err(e) = send_reset_token_email(email, &token) {
-        token_manager.clear_token()?; // Clean up token if email fails
-        return Err(format!("Failed to send reset email: {}", e));
+    match send_reset_token_email(email, &token) {
+        Ok(_) => {
+            println!("\nA reset token has been sent to your email.");
+            println!("Please check your inbox and enter the token below.");
+        }
+        Err(e) => {
+            // If email fails, clean up the stored token
+            token_manager.clear_token()?;
+            return Err(format!("Failed to send reset email: {}", e));
+        }
     }
 
-    println!("\nA reset token has been sent to your email.");
-    println!("Please enter the token to continue:");
-
-    // Get and verify token
+    // Set up attempt limiting for token verification
     let mut attempts = 0;
     const MAX_ATTEMPTS: u32 = 3;
 
+    // Loop to handle token verification
     while attempts < MAX_ATTEMPTS {
+        println!("\nEnter the reset token (or 'cancel' to abort):");
         let input_token = read_line().map_err(|e| format!("Error reading input: {}", e))?;
         let input_token = input_token.trim();
 
-        if token_manager.verify_token(email, input_token)? {
-            // Token verified, get new password
-            let new_password = get_new_password()?;
-
-            // Update user's password
-            if let Some(user) = store.users.values_mut().find(|u| u.email == email) {
-                user.password_hash =
-                    hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
-
-                // Save changes with proper error handling
-                save_user_store(store).map_err(|e| format!("Failed to save user data: {}", e))?;
-
-                // Clear the used token
-                token_manager.clear_token()?;
-
-                println!("\nPassword reset successful! You can now log in with your new password.");
-                return Ok(());
-            }
+        // Allow user to cancel the reset process
+        if input_token.to_lowercase() == "cancel" {
+            token_manager.clear_token()?;
+            return Ok(());
         }
 
+        // Verify the entered token
+        if token_manager.verify_token(email, input_token)? {
+            // Token is valid, proceed with password reset
+            println!("\nToken verified successfully!");
+
+            // Get and validate new password
+            let new_password = get_new_password()?;
+
+            // Generate new password hash first
+            let new_hash = hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
+
+            // Then update the user's password hash
+            if let Some(user) = store.users.values_mut().find(|u| u.email == email) {
+                user.password_hash = new_hash;
+            } else {
+                return Err("Failed to update password: user not found".to_string());
+            }
+
+            // Save the store after releasing the mutable borrow
+            save_user_store(store).map_err(|e| format!("Failed to save user data: {}", e))?;
+
+            // Clear the used token
+            token_manager.clear_token()?;
+
+            // Log the successful password reset
+            log_data_operation(
+                "password_reset",
+                &username,
+                "user_store",
+                true,
+                Some("Password reset completed successfully"),
+            );
+
+            println!("\nPassword reset successful!");
+            return Ok(());
+        }
+
+        // Handle invalid token attempts
         attempts += 1;
         if attempts < MAX_ATTEMPTS {
             println!(
@@ -1678,6 +1736,7 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
                 MAX_ATTEMPTS - attempts
             );
         } else {
+            // Clean up token after max attempts reached
             token_manager.clear_token()?;
             return Err("Too many invalid attempts. Please start over.".to_string());
         }
@@ -1793,11 +1852,11 @@ fn get_new_password() -> Result<String, String> {
 // Function to show initial options when starting the program
 fn show_initial_options() {
     println!("\n=== Welcome to One-Do-Three ===");
-    println!("1. Login");
-    println!("2. Register new account");
-    println!("3. Forgot password"); // This option needs to be implemented properly
-    println!("4. Exit");
-    println!("\nEnter your choice (1-4):");
+    println!("1. Login                  (or type 'login')");
+    println!("2. Register new account   (or type 'register')");
+    println!("3. Forgot password        (or type 'forgot')");
+    println!("4. Exit                   (or type 'exit')");
+    println!("\nEnter your choice         (1-4 or command):");
 }
 
 // Help information function
@@ -1914,10 +1973,10 @@ fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
         show_initial_options();
 
         match read_line().unwrap().trim() {
-            "1" => {
+            "1" | "login" => {
                 return authenticate_user(store);
             }
-            "2" => {
+            "2" | "register" => {
                 match handle_interactive_registration(store) {
                     Ok(_) => {
                         // Double-check that we're logged out
@@ -1935,20 +1994,22 @@ fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
                     }
                 }
             }
-            "3" => {
-                // Updated forgot password flow
-                match handle_forgot_password(store) {
-                    Ok(_) => println!("Password reset completed successfully."),
-                    Err(e) => println!("Password reset failed: {}", e),
+            "3" | "forgot" => match handle_forgot_password(store) {
+                Ok(_) => {
+                    println!("You may now log in with your new password.");
+                    continue;
                 }
-                continue;
-            }
-            "4" => {
+                Err(e) => {
+                    println!("Password reset failed: {}", e);
+                    continue;
+                }
+            },
+            "4" | "exit" | "quit" => {
                 println!("Goodbye!");
                 process::exit(0);
             }
             _ => {
-                println!("Invalid choice. Please try again.");
+                println!("Invalid choice. Please enter a number (1-4) or command (login/register/forgot/exit).");
                 continue;
             }
         }
@@ -2123,15 +2184,15 @@ fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
     true
 }
 
-// Authentication function
+// Function to handle user authentication with proper welcome messages and username case preservation
+// Returns Option<(String, String)> where the tuple contains (normalized_username, password)
 fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     let cache = SecurePasswordCache::new();
 
-    // Try to get cached credentials
+    // Try to get cached credentials first
     if let Ok(Some((cached_username, cached_password))) = cache.get_cached_password() {
         // Check if the cached password is "logout"
         if cached_password.trim() == "logout" {
-            // Removed .to_lowercase() here
             if let Err(e) = cache.clear_cache() {
                 println!("Warning: Failed to clear password cache: {}", e);
             }
@@ -2139,28 +2200,36 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
             return None;
         }
 
-        // Verify cached credentials
-        if verify_user_credentials(&cached_username, &cached_password, store) {
+        // Convert to normalized username for verification
+        let normalized_username = cached_username.trim().to_lowercase();
+
+        // Verify cached credentials and show welcome back message
+        if let Some(user) = store.users.get(&normalized_username) {
+            // Use the original username format stored in the user struct
+            println!("Welcome back, {}!", user.username); // This uses the preserved original case
+
+            // Log successful cached login
             log_auth_event(
                 "login",
-                &cached_username,
+                &user.username,
                 true,
                 Some("using cached credentials"),
             );
-            println!("Using cached credentials (type 'logout' for a new session).");
-            return Some((cached_username, cached_password));
+
+            return Some((normalized_username, cached_password));
         }
     }
 
-    // If no valid cached credentials, prompt for login
+    // If no valid cached credentials, prompt for fresh login
     let mut attempts = 0;
     loop {
         if attempts == 0 {
             println!("\nPlease enter your username (type 'exit' to quit):");
         }
 
-        let username = read_line().unwrap();
-        let normalized_username = username.trim().to_lowercase(); // Normalize username only
+        // Get username input and preserve original case
+        let original_username = read_line().unwrap();
+        let normalized_username = original_username.trim().to_lowercase(); // Normalize for lookup
 
         match normalized_username.as_str() {
             "exit" => {
@@ -2169,10 +2238,9 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
             }
             _ => {
                 println!("Enter password:");
-                let password = read_password().unwrap(); // Keep password as-is, no lowercase
+                let password = read_password().unwrap();
 
                 match password.trim() {
-                    // Only trim whitespace, don't lowercase
                     "exit" => {
                         println!("Operation cancelled by user.");
                         process::exit(0);
@@ -2186,14 +2254,25 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
                         continue;
                     }
                     password => {
+                        // Verify credentials
                         if verify_user_credentials(&normalized_username, password, store) {
-                            // Cache the successful credentials
+                            // Cache the successful credentials with the normalized username
                             if let Err(e) = cache.cache_password(&normalized_username, password) {
                                 println!("Warning: Failed to cache credentials: {}", e);
                             }
+
+                            // Show welcome message for fresh login using original case from stored user
+                            if let Some(user) = store.users.get(&normalized_username) {
+                                println!(
+                                    "\nWelcome, {}! Type 'help' to see available commands.",
+                                    user.username
+                                );
+                            }
+
                             return Some((normalized_username, password.to_string()));
                         }
 
+                        // Handle failed login attempts
                         if attempts >= 3 {
                             println!("Multiple failed attempts.");
                             println!("Press ENTER to try again, type 'exit' to quit, or 'logout' to clear cache.");
@@ -2280,52 +2359,51 @@ fn handle_user_creation(
     password: String,
 ) -> io::Result<()> {
     // Normalize the username for consistency with login
-    let normalized_username = username.trim().to_lowercase();
+    let original_username = username.trim().to_string();
+    let username_normalized = original_username.to_lowercase();
 
     // Log the start of user creation operation
     log_data_operation(
         "create_user",
-        &normalized_username,
+        &original_username, // Changed from normalized_username
         "user_store",
         true,
         Some("starting user registration"),
     );
 
     // Attempt to add user to the store and handle the result
-    match store.add_user(normalized_username.clone(), email.clone(), password.clone()) {
+    match store.add_user(original_username.clone(), email.clone(), password.clone()) {
         Ok(_) => {
             // Attempt to save the store immediately after successful user creation
             match save_user_store(store) {
                 Ok(_) => {
                     log_data_operation(
                         "create_user",
-                        &normalized_username,
+                        &original_username, // Changed from normalized_username
                         "user_store",
                         true,
                         Some("user created and store saved"),
                     );
-                    println!("User {} created successfully", normalized_username);
+                    println!("User {} created successfully", original_username); // Changed from normalized_username
                     Ok(())
                 }
                 Err(e) => {
-                    // Log store saving failure
                     log_data_operation(
                         "create_user",
-                        &normalized_username,
+                        &original_username, // Changed from normalized_username
                         "user_store",
                         false,
-                        Some(&format!("failed to save store: {}", e)),
+                        Some(&format!("failed to add user: {}", e)),
                     );
-                    println!("Failed to save user store: {}", e);
+                    println!("Failed to create user: {}", e);
                     Err(e)
                 }
             }
         }
         Err(e) => {
-            // Log user creation failure
             log_data_operation(
                 "create_user",
-                &normalized_username,
+                &original_username, // Changed from normalized_username
                 "user_store",
                 false,
                 Some(&format!("failed to add user: {}", e)),
@@ -2405,9 +2483,10 @@ fn load_user_store() -> io::Result<UserStore> {
 }
 
 pub fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore) -> bool {
+    let normalized_username = username.trim().to_lowercase();
     let password_hash = hex::encode(derive_key_from_passphrase(password, &store.salt));
 
-    if let Some(user) = store.users.get_mut(username) {
+    if let Some(user) = store.users.get_mut(&normalized_username) {
         if user.password_hash == password_hash {
             // Reset failed attempts and update last login on successful login
             user.failed_attempts = 0;
@@ -2703,10 +2782,21 @@ fn main() {
         };
 
         let cache = SecurePasswordCache::new();
-        println!(
-            "\nWelcome, {}! Type 'help' to see available commands.",
-            username
-        );
+        // After successful authentication
+        let cache = SecurePasswordCache::new();
+        if let Some(user) = store.users.get(&username) {
+            // For cached credentials, the welcome back message is already shown in authenticate_user
+            // For fresh logins, show the welcome message
+            match cache.get_cached_password() {
+                Ok(Some(_)) => {} // Do nothing, "Welcome back" was already shown
+                _ => {
+                    println!(
+                        "\nWelcome, {}! Type 'help' to see available commands.",
+                        user.username
+                    );
+                }
+            }
+        }
 
         // Command execution loop - stays here until logout or timeout
         'command: loop {

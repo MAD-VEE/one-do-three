@@ -176,3 +176,49 @@
 [2025-02-19T11:35:23Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:35:23, details=Some("starting user registration")
 [2025-02-19T11:35:25Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:35:25, details=Some("user created and store saved")
 [2025-02-19T11:35:25Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 12:35:25, details=Some("New user registered successfully")
+[2025-02-19T13:25:01Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T13:25:44Z INFO  one_do_three one_do_three] Data operation: op=password_reset, user=am***er, resource=user_store, success=true, timestamp=2025-02-19 14:25:44, details=Some("Password reset completed successfully")
+[2025-02-19T18:59:59Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:00:52Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:02:09Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:02:32Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:02:32, details=Some("starting user registration")
+[2025-02-19T19:02:33Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:02:33, details=Some("user created and store saved")
+[2025-02-19T19:02:33Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:02:33, details=Some("New user registered successfully")
+[2025-02-19T19:02:59Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=task_file, success=false, timestamp=2025-02-19 20:02:59, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
+[2025-02-19T19:02:59Z INFO  one_do_three one_do_three] Removed orphaned task file: user_649a2104fc8ba102.dat
+[2025-02-19T19:02:59Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:02:59, details=Some("Account successfully deleted")
+[2025-02-19T19:03:14Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:03:14, details=Some("starting user registration")
+[2025-02-19T19:03:16Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:03:16, details=Some("user created and store saved")
+[2025-02-19T19:03:16Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:03:16, details=Some("New user registered successfully")
+[2025-02-19T19:04:12Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:04:32Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:04:32, details=Some("starting user registration")
+[2025-02-19T19:04:34Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:04:34, details=Some("user created and store saved")
+[2025-02-19T19:04:34Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:04:34, details=Some("New user registered successfully")
+[2025-02-19T19:22:45Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:23:58Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:24:13Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:24:14Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 20:24:14, details=Some("using cached credentials")
+[2025-02-19T19:24:43Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:24:44Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 20:24:44, details=Some("using cached credentials")
+[2025-02-19T19:30:47Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:31:16Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=task_file, success=false, timestamp=2025-02-19 20:31:16, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
+[2025-02-19T19:31:16Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:31:16, details=Some("Account successfully deleted")
+[2025-02-19T19:31:32Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:31:32, details=Some("starting user registration")
+[2025-02-19T19:31:34Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:31:34, details=Some("user created and store saved")
+[2025-02-19T19:31:34Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:31:34, details=Some("New user registered successfully")
+[2025-02-19T19:31:51Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:31:52Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 20:31:52, details=Some("using cached credentials")
+[2025-02-19T19:34:20Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:34:40Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=task_file, success=false, timestamp=2025-02-19 20:34:40, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
+[2025-02-19T19:34:40Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:34:40, details=Some("Account successfully deleted")
+[2025-02-19T19:34:54Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:34:54, details=Some("starting user registration")
+[2025-02-19T19:34:55Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:34:55, details=Some("user created and store saved")
+[2025-02-19T19:34:55Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:34:55, details=Some("New user registered successfully")
+[2025-02-19T19:35:22Z ERROR one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=task_file, success=false, timestamp=2025-02-19 20:35:22, details=Some("Failed to remove task file: The system cannot find the file specified. (os error 2)")
+[2025-02-19T19:35:22Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:35:22, details=Some("Account successfully deleted")
+[2025-02-19T19:58:02Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:58:19Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:58:19, details=Some("starting user registration")
+[2025-02-19T19:58:20Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 20:58:20, details=Some("user created and store saved")
+[2025-02-19T19:58:20Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:58:20, details=Some("New user registered successfully")
+[2025-02-19T19:59:14Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T19:59:15Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 20:59:15, details=Some("using cached credentials")
