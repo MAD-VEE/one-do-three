@@ -163,3 +163,16 @@
 [2025-02-19T11:13:48Z INFO  one_do_three one_do_three] Data operation: op=delete_account, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:13:48, details=Some("Account successfully deleted")
 [2025-02-19T11:18:03Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-19T11:18:45Z INFO  one_do_three one_do_three] Data operation: op=change_password, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:18:45, details=Some("Password changed successfully")
+[2025-02-19T11:20:24Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:20:50Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:20:54Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 12:20:54, details=Some("using cached credentials")
+[2025-02-19T11:21:02Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:21:08Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 12:21:08, details=Some("using cached credentials")
+[2025-02-19T11:24:29Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:34:58Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:35:00Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 12:35:00, details=Some("using cached credentials")
+[2025-02-19T11:35:04Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-19T11:35:05Z INFO  one_do_three one_do_three] Auth event: type=forced_logout, user=****, success=true, timestamp=2025-02-19 12:35:05, details=Some("Logout due to new registration")
+[2025-02-19T11:35:23Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:35:23, details=Some("starting user registration")
+[2025-02-19T11:35:25Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-19 12:35:25, details=Some("user created and store saved")
+[2025-02-19T11:35:25Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 12:35:25, details=Some("New user registered successfully")

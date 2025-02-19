@@ -375,6 +375,7 @@ fn cleanup_user_tasks(username: &str, store: &UserStore) -> Result<(), io::Error
 // Function to handle the interactive password change process
 // Takes mutable references to both UserStore and the current User
 // Returns Result indicating success or failure with error message
+// Includes proper cache management after password change
 fn handle_password_change(
     store: &mut UserStore,
     username: &str,
@@ -440,6 +441,16 @@ fn handle_password_change(
     if let Some(user) = store.users.get_mut(username) {
         // Update the password hash
         user.password_hash = hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
+
+        // Then, clear the existing password cache
+        cache
+            .clear_cache()
+            .map_err(|e| format!("Failed to clear password cache: {}", e))?;
+
+        // Finally, cache the new password
+        cache
+            .cache_password(username, &new_password)
+            .map_err(|e| format!("Failed to update password cache: {}", e))?;
 
         // Log the password change event
         log_data_operation(
@@ -1447,6 +1458,28 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
 
 // Function to handle interactive user registration
 fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
+    // Create a new instance of SecurePasswordCache
+    let cache = SecurePasswordCache::new();
+
+    // First, clear any existing cached credentials
+    if let Ok(Some((cached_username, _))) = cache.get_cached_password() {
+        // Log the forced logout of previous user
+        log_auth_event(
+            "forced_logout",
+            &cached_username,
+            true,
+            Some("Logout due to new registration"),
+        );
+
+        // Clear the password cache
+        if let Err(e) = cache.clear_cache() {
+            println!(
+                "Warning: Failed to clear previous user's cached credentials: {}",
+                e
+            );
+        }
+    }
+
     println!("\n=== User Registration ===");
 
     // Get username with validation
@@ -1512,7 +1545,48 @@ fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
     }
 
     // Add the new user
-    handle_user_creation(store, username, email, password)
+    match handle_user_creation(store, username.clone(), email, password) {
+        Ok(_) => {
+            // Log successful registration
+            log_auth_event(
+                "registration",
+                &username,
+                true,
+                Some("New user registered successfully"),
+            );
+
+            // Ensure we're in a logged-out state after registration
+            if let Err(e) = cache.clear_cache() {
+                println!(
+                    "Warning: Failed to clear credentials after registration: {}",
+                    e
+                );
+            }
+
+            println!("\nRegistration successful!");
+            println!("Please log in with your new account.");
+            Ok(())
+        }
+        Err(e) => {
+            // Log failed registration
+            log_auth_event(
+                "registration",
+                &username,
+                false,
+                Some(&format!("Registration failed: {}", e)),
+            );
+
+            // Clear cache on failure as well for consistency
+            if let Err(ce) = cache.clear_cache() {
+                println!(
+                    "Warning: Failed to clear credentials after failed registration: {}",
+                    ce
+                );
+            }
+
+            Err(e)
+        }
+    }
 }
 
 // Forgot password handler
@@ -1844,10 +1918,22 @@ fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
                 return authenticate_user(store);
             }
             "2" => {
-                if let Err(e) = handle_interactive_registration(store) {
-                    println!("Registration failed: {}", e);
+                match handle_interactive_registration(store) {
+                    Ok(_) => {
+                        // Double-check that we're logged out
+                        let cache = SecurePasswordCache::new();
+                        if let Ok(Some(_)) = cache.get_cached_password() {
+                            if let Err(e) = cache.clear_cache() {
+                                println!("Warning: Failed to clear lingering credentials: {}", e);
+                            }
+                        }
+                        continue;
+                    }
+                    Err(e) => {
+                        println!("Registration failed: {}", e);
+                        continue;
+                    }
                 }
-                continue;
             }
             "3" => {
                 // Updated forgot password flow
