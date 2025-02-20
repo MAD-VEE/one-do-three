@@ -31,13 +31,77 @@ type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 // Add new constant for user storage
 const USERS_FILE: &str = "users.json";
 
-// Structure representing a single task
+// Structure representing a single task that includes progress tracking
 #[derive(Serialize, Deserialize, Debug)]
 struct Task {
     name: String,
     description: String,
     priority: String,
     completed: bool,
+    // New progress tracking fields
+    progress_percent: u8,       // Stores progress as 0-100
+    progress_bar_style: String, // Stores the chosen style for progress visualization
+}
+
+impl Task {
+    // Add method to update progress
+    fn update_progress(&mut self, new_progress: u8) -> Result<(), String> {
+        // Validate progress value
+        if new_progress > 100 {
+            return Err("Progress cannot exceed 100%".to_string());
+        }
+
+        self.progress_percent = new_progress;
+
+        // Automatically set completed flag when progress reaches 100%
+        self.completed = new_progress == 100;
+
+        Ok(())
+    }
+
+    // Method to generate ASCII progress bar based on chosen style
+    fn generate_progress_bar(&self) -> String {
+        match self.progress_bar_style.as_str() {
+            "simple" => {
+                // Generate [=====>    ] style progress bar
+                let filled = (self.progress_percent as f32 / 10.0).round() as usize;
+                let empty = 10 - filled;
+                let bar = "=".repeat(filled.max(0));
+                let spaces = " ".repeat(empty.max(0));
+                format!("[{}>{spaces}] {}%", bar, self.progress_percent)
+            }
+            "block" => {
+                // Generate [██████    ] style progress bar using block characters
+                let filled = (self.progress_percent as f32 / 10.0).round() as usize;
+                let empty = 10 - filled;
+                let bar = "█".repeat(filled.max(0));
+                let spaces = " ".repeat(empty.max(0));
+                format!("[{bar}{spaces}] {}%", self.progress_percent)
+            }
+            "numeric" => {
+                // Simple numeric display
+                format!("[{}%]", self.progress_percent)
+            }
+            "detailed" => {
+                // Detailed progress bar with fraction
+                let filled = (self.progress_percent as f32 / 10.0).round() as usize;
+                let empty = 10 - filled;
+                let bar = "=".repeat(filled.max(0));
+                let spaces = " ".repeat(empty.max(0));
+                format!("[{bar}>{spaces}] {}/10", filled)
+            }
+            _ => format!("{}%", self.progress_percent), // Default fallback
+        }
+    }
+}
+
+// Available progress bar styles
+#[derive(Serialize, Deserialize, Debug)]
+enum ProgressBarStyle {
+    Simple,   // [=====>    ] style
+    Block,    // [██████    ] style
+    Numeric,  // [60%] style
+    Detailed, // [======>   ] 6/10 style
 }
 
 // Structure for storing password with timestamp in keyring
@@ -1229,7 +1293,7 @@ fn generate_random_iv() -> Vec<u8> {
     (0..16).map(|_| rng.gen()).collect()
 }
 
-// Function to handle interactive task creation
+// Function to handle interactive task creation with progress options
 fn handle_interactive_task_creation() -> Task {
     // Get task name
     println!("\nEnter task name:");
@@ -1260,16 +1324,38 @@ fn handle_interactive_task_creation() -> Task {
         }
     };
 
+    // Progress bar style selection
+    println!("\nSelect progress bar style:");
+    println!("1. Simple  [=====>    ]                   (or type 'simple')");
+    println!("2. Block   [██████    ]                   (or type 'block')");
+    println!("3. Numeric [60%]                          (or type 'numeric')");
+    println!("4. Detailed [======>   ] 6/10             (or type 'detailed')");
+    println!("Enter style number or command (default: Simple):");
+
+    let progress_bar_style = loop {
+        let input = read_line().unwrap();
+        match input.trim() {
+            "simple" | "1" => break "simple".to_string(),
+            "block" | "2" => break "block".to_string(),
+            "numeric" | "3" => break "numeric".to_string(),
+            "detailed" | "4" => break "detailed".to_string(),
+            _ => println!("Invalid choice. Please enter 1-4:"),
+        }
+    };
+
     Task {
         name,
         description,
         priority,
         completed: false,
+        progress_percent: 0,
+        progress_bar_style,
     }
 }
 
 // Function to handle interactive task editing
 fn handle_interactive_task_edit(existing_task: &Task) -> Task {
+    // Show current task details
     println!("\nCurrent task details:");
     println!("Name: {}", existing_task.name);
     println!("Description: {}", existing_task.description);
@@ -1282,7 +1368,10 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
             "Pending"
         }
     );
+    println!("Progress: {}%", existing_task.progress_percent);
+    println!("Progress Bar: {}", existing_task.generate_progress_bar());
 
+    // Get new description or keep current
     println!("\nEnter new description (press Enter to keep current):");
     let description = read_line().unwrap();
     let description = if description.trim().is_empty() {
@@ -1291,6 +1380,7 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
         description
     };
 
+    // Get new priority or keep current
     println!("\nEnter new priority (High/Medium/Low, press Enter to keep current):");
     let priority = loop {
         let input = read_line().unwrap();
@@ -1304,6 +1394,7 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
         }
     };
 
+    // Get new completion status or keep current
     println!("\nMark as completed? (yes/no/Enter to keep current):");
     let completed = loop {
         let input = read_line().unwrap();
@@ -1318,11 +1409,109 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
         }
     };
 
+    // Update progress tracking
+    println!("\nUpdate progress? (yes/no/Enter to keep current):");
+    let progress_input = read_line().unwrap();
+    let (progress_percent, progress_bar_style) = if progress_input.trim().to_lowercase() == "yes" {
+        println!(
+            "\nEnter new progress percentage (0-100, Enter to keep current: {}%):",
+            existing_task.progress_percent
+        );
+        let new_progress = read_line().unwrap();
+        let progress_percent = if new_progress.trim().is_empty() {
+            existing_task.progress_percent
+        } else {
+            match new_progress.trim().parse::<u8>() {
+                Ok(p) if p <= 100 => p,
+                _ => {
+                    println!("Invalid progress value. Keeping current progress.");
+                    existing_task.progress_percent
+                }
+            }
+        };
+
+        // Update progress bar style
+        println!("\nSelect new progress bar style (Enter to keep current):");
+        println!("1. Simple  [=====>    ]");
+        println!("2. Block   [██████    ]");
+        println!("3. Numeric [60%]");
+        println!("4. Detailed [======>   ] 6/10");
+
+        let style_input = read_line().unwrap();
+        let progress_bar_style = if style_input.trim().is_empty() {
+            existing_task.progress_bar_style.clone()
+        } else {
+            match style_input.trim() {
+                "1" => "simple".to_string(),
+                "2" => "block".to_string(),
+                "3" => "numeric".to_string(),
+                "4" => "detailed".to_string(),
+                _ => {
+                    println!("Invalid style. Keeping current style.");
+                    existing_task.progress_bar_style.clone()
+                }
+            }
+        };
+
+        (progress_percent, progress_bar_style)
+    } else {
+        (
+            existing_task.progress_percent,
+            existing_task.progress_bar_style.clone(),
+        )
+    };
+
+    // Create and return updated task
     Task {
         name: existing_task.name.clone(),
         description,
         priority,
         completed,
+        progress_percent,
+        progress_bar_style,
+    }
+}
+
+// Function to handle interactive progress update
+fn handle_interactive_progress_update(task: &mut Task) -> Result<(), String> {
+    println!("\nCurrent progress: {}%", task.progress_percent);
+    println!("Current visualization: {}", task.generate_progress_bar());
+
+    // Show progress bar style options
+    println!("\nAvailable progress bar styles:");
+    println!("1. Simple  [=====>    ]");
+    println!("2. Block   [██████    ]");
+    println!("3. Numeric [60%]");
+    println!("4. Detailed [======>   ] 6/10");
+
+    println!("\nEnter style number (or press Enter to keep current):");
+    let style_input = read_line().map_err(|e| e.to_string())?;
+
+    if !style_input.trim().is_empty() {
+        task.progress_bar_style = match style_input.trim() {
+            "1" => "simple".to_string(),
+            "2" => "block".to_string(),
+            "3" => "numeric".to_string(),
+            "4" => "detailed".to_string(),
+            _ => {
+                println!("Invalid style. Keeping current style.");
+                task.progress_bar_style.clone()
+            }
+        };
+    }
+
+    println!("\nEnter new progress percentage (0-100):");
+    let progress_input = read_line().map_err(|e| e.to_string())?;
+
+    match progress_input.trim().parse::<u8>() {
+        Ok(progress) => {
+            task.update_progress(progress)?;
+            println!("\nProgress updated: {}", task.generate_progress_bar());
+            Ok(())
+        }
+        Err(_) => {
+            Err("Invalid progress value. Please enter a number between 0 and 100.".to_string())
+        }
     }
 }
 
@@ -1715,14 +1904,15 @@ fn show_help_information() {
 
     // Main Commands Section
     println!("\nMain Commands:");
-    println!("  add              - Add a new task");
-    println!("  list             - List all tasks");
-    println!("  edit             - Edit an existing task");
-    println!("  delete           - Delete a task");
-    println!("  profile          - View or update profile information");
-    println!("  change-password  - Change your password");
-    println!("  delete-account   - Permanently delete your account");
-    println!("  logout           - Log out of current session");
+    println!("  add                 - Add a new task");
+    println!("  list                - List all tasks");
+    println!("  edit                - Edit an existing task");
+    println!("  delete              - Delete a task");
+    println!("  progress TASKNAME   - Update progress for a specific task");
+    println!("  profile             - View or update profile information");
+    println!("  change-password     - Change your password");
+    println!("  delete-account      - Permanently delete your account");
+    println!("  logout              - Log out of current session");
 
     // List Command Options
     println!("\nList Command Options:");
@@ -1794,6 +1984,20 @@ fn show_command_help(command: &str) {
             println!("  - Task name (must be unique)");
             println!("  - Description (optional)");
             println!("  - Priority (High/Medium/Low)");
+        }
+        "progress" => {
+            println!("\n=== Progress Command Help ===");
+            println!("\nUsage:");
+            println!("  progress TASKNAME  - Update progress for specified task");
+            println!("\nFeatures:");
+            println!("  - Set progress percentage (0-100%)");
+            println!("  - Choose from multiple progress bar styles:");
+            println!("    1. Simple  [=====>    ]");
+            println!("    2. Block   [██████    ]");
+            println!("    3. Numeric [60%]");
+            println!("    4. Detailed [======>   ] 6/10");
+            println!("\nExample:");
+            println!("  progress \"My Task\"");
         }
         "delete-account" => {
             println!("\n=== Delete Account Command Help ===");
@@ -2696,6 +2900,13 @@ fn main() {
                         )
                         .subcommand(Command::new("edit").about("Edit an existing task"))
                         .subcommand(Command::new("delete").about("Delete an existing task"))
+                        .subcommand(
+                            Command::new("progress").about("Update task progress").arg(
+                                Arg::new("task-name")
+                                    .help("Name of the task to update progress")
+                                    .required(true),
+                            ),
+                        )
                         .subcommand(Command::new("register").about("Register a new user"))
                         .subcommand(
                             Command::new("profile") // Create a new subcommand named "profile"
@@ -2894,9 +3105,13 @@ fn main() {
 
                                     for (name, task) in sorted_tasks {
                                         println!(
-                                    "Task: {}\nDescription: {}\nPriority: {}\nCompleted: {}\n",
-                                    name, task.description, task.priority, task.completed
-                                );
+                                                "Task: {}\nDescription: {}\nPriority: {}\nProgress: {}\nCompleted: {}\n",
+                                                name,
+                                                task.description,
+                                                task.priority,
+                                                task.generate_progress_bar(),
+                                                task.completed
+                                            );
                                     }
                                 }
                                 Err(e) => println!("Error loading tasks: {}", e),
@@ -3005,6 +3220,48 @@ fn main() {
                                 }
                             } else {
                                 println!("Task not found: {}", name);
+                            }
+                        }
+                        // Handle progress command
+                        Some(("progress", sub_matches)) => {
+                            // Check for session timeout
+                            if let Ok(None) = cache.get_cached_password() {
+                                println!("Session expired due to inactivity. Please log in again.");
+                                continue;
+                            }
+
+                            // First check passphrase
+                            if !is_passphrase_correct(user, &password) {
+                                println!("Error: Incorrect passphrase. Unable to update progress.");
+                                return;
+                            }
+
+                            let task_name = sub_matches.get_one::<String>("task-name").unwrap();
+
+                            if let Some(task) = tasks.get_mut(task_name) {
+                                match handle_interactive_progress_update(task) {
+                                    Ok(_) => {
+                                        // Update cache and save changes
+                                        cache.cache_password(&username, &password).unwrap_or_else(
+                                            |e| {
+                                                println!(
+                                                    "Warning: Failed to update password cache: {}",
+                                                    e
+                                                );
+                                            },
+                                        );
+
+                                        match save_tasks_to_file(&tasks, user, &password) {
+                                            Ok(_) => println!("Progress updated successfully!"),
+                                            Err(e) => {
+                                                println!("Error saving progress update: {}", e)
+                                            }
+                                        }
+                                    }
+                                    Err(e) => println!("Failed to update progress: {}", e),
+                                }
+                            } else {
+                                println!("Task not found: {}", task_name);
                             }
                         }
                         // Handle register command
