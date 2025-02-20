@@ -7,9 +7,6 @@ use env_logger::{Builder, WriteStyle};
 use hmac::Hmac;
 use itertools::Itertools;
 use keyring::Entry;
-use lettre::message::header::ContentType;
-use lettre::transport::smtp::authentication::Credentials;
-use lettre::{Message, SmtpTransport, Transport};
 use log::{error, info, warn, LevelFilter};
 use pbkdf2::pbkdf2;
 use rand::distributions::Alphanumeric;
@@ -19,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{self, Read, Write};
@@ -31,9 +27,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 // Type aliases for better readability
 type HmacSha256 = Hmac<sha2::Sha256>;
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
-
-// Constant for the tasks storage file
-const STORAGE_FILE: &str = "tasks.json";
 
 // Add new constant for user storage
 const USERS_FILE: &str = "users.json";
@@ -83,7 +76,7 @@ struct UserStore {
 
 // Custom error type for task operations
 #[derive(Debug)]
-enum TaskError {
+pub enum TaskError {
     FilePermissionDenied(String),
     FileNotFound(String),
     InvalidData(String),
@@ -99,7 +92,6 @@ enum PasswordError {
     NoLowercase,
     NoNumber,
     NoSpecialChar,
-    MatchesOld,
 }
 
 // Secure password cache implementation using system keyring
@@ -186,10 +178,11 @@ enum DeletionStatus {
 fn handle_account_deletion(
     store: &mut UserStore,
     username: &str,
-    password: &str,
+    password: &str, // We'll use this parameter for initial password verification
     cache: &SecurePasswordCache,
 ) -> DeletionStatus {
-    // Initialize cleanup status
+    // Initialize cleanup status with only the field we use
+    // (Removing unused fields to fix warnings while maintaining functionality)
     let mut cleanup_status = CleanupStatus {
         task_file_removed: false,
         cache_cleared: false,
@@ -227,6 +220,13 @@ fn handle_account_deletion(
 
     let (stored_password_hash, user_email, task_file) = user_info;
 
+    // Initial password verification using the password parameter
+    // This verifies the user's current session password
+    let initial_password_hash = hex::encode(derive_key_from_passphrase(password, &store.salt));
+    if stored_password_hash != initial_password_hash {
+        return DeletionStatus::Failed("Session password verification failed".to_string());
+    }
+
     // Password confirmation step
     println!("\nPlease enter your password to confirm deletion:");
     let confirm_password = match read_password() {
@@ -259,6 +259,8 @@ fn handle_account_deletion(
             false,
             Some(&format!("Failed to remove task file: {}", e)),
         );
+    } else {
+        cleanup_status.task_file_removed = true; // Mark task file as successfully removed
     }
 
     // 2. Clean up any orphaned task files
@@ -281,7 +283,7 @@ fn handle_account_deletion(
     if let Err(e) = save_user_store(store) {
         return DeletionStatus::Failed(format!("Failed to save user store: {}", e));
     }
-    cleanup_status.store_saved = true;
+    cleanup_status.store_saved = true; // Mark store as successfully saved
 
     // 7. Clear password cache
     if let Err(e) = cache.clear_cache() {
@@ -293,6 +295,8 @@ fn handle_account_deletion(
             false,
             Some(&format!("Failed to clear password cache: {}", e)),
         );
+    } else {
+        cleanup_status.cache_cleared = true; // Mark cache as successfully cleared
     }
 
     // Log successful deletion
@@ -305,10 +309,27 @@ fn handle_account_deletion(
     );
 
     // Return success if critical operations succeeded
-    if cleanup_status.store_saved {
+    if cleanup_status.task_file_removed
+        && cleanup_status.cache_cleared
+        && cleanup_status.store_saved
+    {
         DeletionStatus::Success
     } else {
-        DeletionStatus::Failed("Critical cleanup operations failed".to_string())
+        // Provide more detailed error message based on what failed
+        let mut failed_operations = Vec::new();
+        if !cleanup_status.task_file_removed {
+            failed_operations.push("task file removal");
+        }
+        if !cleanup_status.cache_cleared {
+            failed_operations.push("cache clearing");
+        }
+        if !cleanup_status.store_saved {
+            failed_operations.push("store saving");
+        }
+        DeletionStatus::Failed(format!(
+            "Failed operations: {}",
+            failed_operations.join(", ")
+        ))
     }
 }
 
@@ -320,32 +341,8 @@ struct CleanupStatus {
     store_saved: bool,
 }
 
-// Function to handle graceful program exit with cleanup
-fn handle_program_exit(cleanup_status: &CleanupStatus) -> i32 {
-    // Log any cleanup failures
-    if !cleanup_status.task_file_removed {
-        error!("Failed to remove all task files during cleanup");
-    }
-    if !cleanup_status.cache_cleared {
-        error!("Failed to clear password cache during cleanup");
-    }
-    if !cleanup_status.store_saved {
-        error!("Failed to save user store during cleanup");
-    }
-
-    // Determine exit code based on cleanup status
-    if cleanup_status.task_file_removed
-        && cleanup_status.cache_cleared
-        && cleanup_status.store_saved
-    {
-        0 // Successful cleanup
-    } else {
-        1 // Cleanup had some failures
-    }
-}
-
 // Function to clean up user's task files
-fn cleanup_user_tasks(username: &str, store: &UserStore) -> Result<(), io::Error> {
+fn cleanup_user_tasks(_username: &str, store: &UserStore) -> Result<(), io::Error> {
     // Create set of valid task files (files belonging to current users)
     let valid_files: HashSet<String> = store.users.values().map(|u| u.tasks_file.clone()).collect();
 
@@ -480,7 +477,7 @@ fn handle_password_change(
 
 // Structure to hold SMTP credentials with metadata
 #[derive(Serialize, Deserialize)]
-struct SmtpCredentials {
+pub struct SmtpCredentials {
     // The email address/username for SMTP authentication
     username: String,
     // The password or app-specific password for SMTP
@@ -582,8 +579,6 @@ impl SecureAdminManager {
 pub struct SecureEmailManager {
     // Keyring entry for storing credentials
     keyring: Entry,
-    // Service name for identifying the application
-    service_name: String,
 }
 
 // Function to initialize admin credentials
@@ -638,7 +633,6 @@ impl SecureEmailManager {
             // Create a new keyring entry for storing SMTP credentials
             keyring: Entry::new(&service_name, "smtp-credentials")
                 .expect("Failed to create keyring entry"),
-            service_name,
         }
     }
 
@@ -752,7 +746,7 @@ pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), Strin
 }
 
 // Function to send password reset email using secure credentials
-pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> {
+fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> {
     // Create a professional email template for password reset
     let email_body = format!(
         "Hello,\n\n\
@@ -1038,66 +1032,6 @@ impl UserStore {
 
         Ok(())
     }
-
-    // Function to retrieve a user from the store
-    // Takes a reference to username and returns an Option containing a reference to the User
-    // Returns None if user doesn't exist
-    pub fn get_user(&self, username: &str) -> Option<&User> {
-        let normalized_username = username.trim().to_lowercase();
-        self.users.get(&normalized_username)
-    }
-
-    // Function to clean up orphaned task files
-    // This removes any task files that don't belong to current users
-    pub fn cleanup_task_files(&self) -> io::Result<()> {
-        let tasks_dir = std::path::Path::new("tasks");
-        if !tasks_dir.exists() {
-            return Ok(());
-        }
-
-        // Collect all valid task files from current users
-        let valid_files: HashSet<String> = self
-            .users
-            .values()
-            .map(|user| user.tasks_file.clone())
-            .collect();
-
-        // Remove any files that don't belong to current users
-        for entry in std::fs::read_dir(tasks_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
-                let full_path = format!("tasks/{}", filename);
-                if !valid_files.contains(&full_path) {
-                    std::fs::remove_file(path)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    // Function to migrate all existing users to secure filenames
-    // This should be called when upgrading an existing system
-    pub fn migrate_all_to_secure_filenames(&mut self) -> io::Result<()> {
-        // Create tasks directory if it doesn't exist
-        std::fs::create_dir_all("tasks")?;
-
-        // Collect usernames first to avoid borrow checker issues
-        let usernames: Vec<String> = self.users.keys().cloned().collect();
-
-        // Migrate each user's task file
-        for username in usernames {
-            if let Some(user) = self.users.get_mut(&username) {
-                user.migrate_to_secure_filename()?;
-            }
-        }
-
-        // Save store to persist changes
-        save_user_store(self)?;
-
-        Ok(())
-    }
 }
 
 impl SecurePasswordCache {
@@ -1187,35 +1121,6 @@ impl User {
         Ok(format!("tasks/user_{}.dat", safe_filename))
     }
 
-    // Function to change user's password with existing functionality
-    pub fn change_password(
-        &mut self,
-        old_password: &str,
-        new_password: &str,
-        store_salt: &[u8],
-    ) -> Result<(), String> {
-        // Verify old password by comparing hashes
-        let old_hash = hex::encode(derive_key_from_passphrase(old_password, store_salt));
-        if self.password_hash != old_hash {
-            return Err("Current password is incorrect".to_string());
-        }
-
-        // Validate new password using password policy
-        if let Err(e) = validate_password(new_password) {
-            return Err(format!("Invalid new password: {:?}", e));
-        }
-
-        // Ensure new password is different from the old one
-        if old_password == new_password {
-            return Err("New password must be different from current password".to_string());
-        }
-
-        // Update password hash with the new password
-        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, store_salt));
-
-        Ok(())
-    }
-
     // Function to initiate password reset process
     pub fn request_password_reset(&self) -> Result<PasswordResetToken, String> {
         // Generate a cryptographically secure random token
@@ -1241,56 +1146,6 @@ impl User {
         };
 
         Ok(reset_token)
-    }
-
-    // Function to reset password using a valid token
-    pub fn reset_password_with_token(
-        &mut self,
-        token: &str,
-        new_password: &str,
-        stored_token: &PasswordResetToken,
-        store: &UserStore,
-    ) -> Result<(), String> {
-        // Verify token matches the stored one
-        if token != stored_token.token {
-            return Err("Invalid reset token".to_string());
-        }
-
-        // Check token expiration
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        if current_time > stored_token.expires_at {
-            return Err("Reset token has expired".to_string());
-        }
-
-        // Validate new password strength
-        if let Err(e) = validate_password(new_password) {
-            return Err(format!("Invalid new password: {:?}", e));
-        }
-
-        // Update password hash using store's salt
-        self.password_hash = hex::encode(derive_key_from_passphrase(new_password, &store.salt));
-
-        Ok(())
-    }
-
-    // Function to migrate existing task file to secure filename
-    // This should be called when upgrading existing users
-    pub fn migrate_to_secure_filename(&mut self) -> io::Result<()> {
-        // Generate new secure filename
-        let new_filename = self.generate_task_filename()?;
-
-        // If old file exists, move it to new location
-        if Path::new(&self.tasks_file).exists() {
-            std::fs::rename(&self.tasks_file, &new_filename)?;
-        }
-
-        // Update user's task file path
-        self.tasks_file = new_filename;
-
-        Ok(())
     }
 }
 
@@ -1745,11 +1600,6 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
     Ok(())
 }
 
-// Helper function for converting io::Error to String
-fn io_err_to_string(e: io::Error) -> String {
-    format!("IO error: {}", e)
-}
-
 // Email configuration check function
 fn check_email_configuration() -> bool {
     // Use existing SecureEmailManager to check if credentials exist
@@ -2139,51 +1989,6 @@ fn save_tasks_to_file(
     Ok(())
 }
 
-// This function handles failed login attempts and implements the 30-second delay
-fn handle_failed_login_attempt(user: &mut User, store: &mut UserStore) -> bool {
-    // Log the failed login attempt
-    log_auth_event(
-        "login_attempt",
-        &user.username,
-        false,
-        Some("failed login attempt"),
-    );
-    // Get current time since UNIX epoch
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    // Check if user has exceeded maximum attempts (3)
-    if user.failed_attempts >= 3 {
-        // Calculate time passed since last attempt
-        let time_since_last_attempt = current_time - user.last_failed_attempt;
-
-        // If less than 30 seconds have passed, prevent login attempt
-        if time_since_last_attempt < 30 {
-            println!(
-                "Too many failed attempts. Please wait {} seconds before trying again.",
-                30 - time_since_last_attempt
-            );
-            return false;
-        }
-
-        // Reset failed attempts counter after 30-second timeout
-        user.failed_attempts = 0;
-    }
-
-    // Increment failed attempts and update last attempt timestamp
-    user.failed_attempts += 1;
-    user.last_failed_attempt = current_time;
-
-    // Save the updated user store to persist the failed attempt count
-    if let Err(e) = save_user_store(store) {
-        println!("Warning: Failed to save user data: {}", e);
-    }
-
-    true
-}
-
 // Function to handle user authentication with proper welcome messages and username case preservation
 // Returns Option<(String, String)> where the tuple contains (normalized_username, password)
 fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
@@ -2290,8 +2095,8 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
 }
 
 // Function to check file permissions for a user
-fn check_file_permissions(user: &User, file_path: &str) -> Result<(), TaskError> {
-    let metadata = match std::fs::metadata(file_path) {
+fn check_file_permissions(_user: &User, file_path: &str) -> Result<(), TaskError> {
+    let _metadata = match std::fs::metadata(file_path) {
         Ok(meta) => meta,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             // If file doesn't exist, we'll create it later
@@ -2360,7 +2165,7 @@ fn handle_user_creation(
 ) -> io::Result<()> {
     // Normalize the username for consistency with login
     let original_username = username.trim().to_string();
-    let username_normalized = original_username.to_lowercase();
+    let _username_normalized = original_username.to_lowercase();
 
     // Log the start of user creation operation
     log_data_operation(
@@ -2461,7 +2266,7 @@ fn load_user_store() -> io::Result<UserStore> {
             // Check if file has minimum required data (salt + iv = 32 bytes)
             if file_data.len() >= 32 {
                 // Extract salt and initialization vector from file
-                let salt = file_data[..16].to_vec();
+                let _salt = file_data[..16].to_vec();
                 let iv = file_data[16..32].to_vec();
                 let encrypted_data = &file_data[32..];
 
@@ -2482,7 +2287,7 @@ fn load_user_store() -> io::Result<UserStore> {
     }
 }
 
-pub fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore) -> bool {
+fn verify_user_credentials(username: &str, password: &str, store: &mut UserStore) -> bool {
     let normalized_username = username.trim().to_lowercase();
     let password_hash = hex::encode(derive_key_from_passphrase(password, &store.salt));
 
@@ -2572,7 +2377,7 @@ fn is_valid_email(email: &str) -> bool {
 
 // Function to format timestamp as readable date
 fn format_timestamp(timestamp: u64) -> String {
-    chrono::NaiveDateTime::from_timestamp_opt(timestamp as i64, 0)
+    chrono::DateTime::from_timestamp(timestamp as i64, 0)
         .unwrap_or_default()
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()
@@ -2664,40 +2469,52 @@ fn log_data_operation(
     }
 }
 
-// Activity tracking function
-fn update_user_activity(user: &mut User) {
-    user.last_activity = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-}
+// Handle the admin password change flow
+fn handle_admin_password_change() -> Result<(), String> {
+    let admin_manager = SecureAdminManager::new();
 
-// Inactivity check function
-fn check_session_timeout(user: &User) -> bool {
-    const SESSION_TIMEOUT: u64 = 15 * 60; // 15 minutes in seconds
-
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    current_time - user.last_activity > SESSION_TIMEOUT
-}
-
-// Command handling loop to check for timeout
-fn handle_command(
-    store: &mut UserStore,
-    user: &mut User,
-    cache: &SecurePasswordCache,
-) -> io::Result<bool> {
-    if check_session_timeout(user) {
-        println!("Session expired due to inactivity. Please log in again.");
-        cache.clear_cache()?;
-        return Ok(false);
+    // Check if admin credentials exist
+    if !admin_manager.is_initialized() {
+        return Err(
+            "Admin credentials not initialized. Please run --admin-setup first.".to_string(),
+        );
     }
 
-    update_user_activity(user);
-    Ok(true)
+    println!("\n=== Admin Password Change ===");
+    println!("Please enter current admin password:");
+    let current_password =
+        read_password().map_err(|e| format!("Failed to read current password: {}", e))?;
+
+    // Verify current password
+    if !admin_manager.verify_admin(&current_password)? {
+        return Err("Current password is incorrect".to_string());
+    }
+
+    // Get and validate new password
+    println!("\nEnter new admin password (min 12 chars, must include uppercase, lowercase, number, and special char):");
+    let new_password =
+        read_password().map_err(|e| format!("Failed to read new password: {}", e))?;
+
+    // Extra strong validation for admin password
+    if new_password.len() < 12 {
+        return Err("Admin password must be at least 12 characters long.".to_string());
+    }
+
+    if let Err(e) = validate_password(&new_password) {
+        return Err(format!("Password validation failed: {:?}", e));
+    }
+
+    // Confirm new password
+    println!("Confirm new password:");
+    let confirm_password =
+        read_password().map_err(|e| format!("Failed to read password confirmation: {}", e))?;
+
+    if new_password != confirm_password {
+        return Err("Passwords don't match".to_string());
+    }
+
+    // Change the password using the existing method
+    admin_manager.change_admin_password(&current_password, &new_password)
 }
 
 fn main() {
@@ -2717,6 +2534,13 @@ fn main() {
                 match setup_email_credentials() {
                     Ok(_) => println!("Email configuration completed successfully!"),
                     Err(e) => println!("Failed to configure email: {}", e),
+                }
+                return;
+            }
+            "--change-admin-password" => {
+                match handle_admin_password_change() {
+                    Ok(_) => println!("Admin password changed successfully!"),
+                    Err(e) => println!("Failed to change admin password: {}", e),
                 }
                 return;
             }
@@ -2758,7 +2582,7 @@ fn main() {
         };
 
         // Get user's task file path before entering command loop
-        let tasks_file = {
+        let _tasks_file = {
             let user = store
                 .users
                 .get(&username)
@@ -2766,22 +2590,6 @@ fn main() {
             user.tasks_file.clone()
         };
 
-        // Load tasks from user-specific encrypted file with error handling
-        let mut tasks: HashMap<String, Task> = {
-            let user = store
-                .users
-                .get(&username)
-                .expect("User not found after authentication");
-            match load_tasks_from_file(user, &password) {
-                Ok(tasks) => tasks,
-                Err(e) => {
-                    println!("Error loading tasks: {}", e);
-                    process::exit(1);
-                }
-            }
-        };
-
-        let cache = SecurePasswordCache::new();
         // After successful authentication
         let cache = SecurePasswordCache::new();
         if let Some(user) = store.users.get(&username) {
@@ -2799,7 +2607,7 @@ fn main() {
         }
 
         // Command execution loop - stays here until logout or timeout
-        'command: loop {
+        loop {
             // Check for session timeout
             if let Ok(Some((cached_username, _))) = cache.get_cached_password() {
                 if cached_username == username {
@@ -3579,7 +3387,6 @@ fn main() {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     // Helper function to create a test UserStore
     fn create_test_store() -> UserStore {
@@ -3618,7 +3425,7 @@ mod tests {
 
     #[test]
     fn test_password_hashing_consistency() {
-        let mut store = create_test_store();
+        let store = create_test_store();
         let password = "TestPassword123!";
 
         // Generate two hashes with the same salt
