@@ -1,5 +1,6 @@
 // External crate dependencies for various functionalities
 use aes::Aes256;
+use base64::{engine::general_purpose::STANDARD as base64, Engine as _};
 use block_modes::block_padding::Pkcs7;
 use block_modes::{BlockMode, Cbc};
 use clap::{Arg, Command};
@@ -30,6 +31,343 @@ type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
 // Add new constant for user storage
 const USERS_FILE: &str = "users.json";
+
+// Constants for admin security configuration
+const MAX_ADMIN_ATTEMPTS: u32 = 3; // Maximum failed attempts before lockout
+const ADMIN_LOCKOUT_DURATION: u64 = 1800; // 30 minutes lockout duration in seconds
+const SETUP_TOKEN_DURATION: u64 = 3600; // 1 hour validity for setup tokens
+
+// Structure to track admin authentication attempts
+#[derive(Serialize, Deserialize)]
+struct AdminAuthTracker {
+    failed_attempts: u32,
+    last_attempt: u64,
+    lockout_until: u64,
+}
+
+impl AdminAuthTracker {
+    // Create new authentication tracker with default values
+    fn new() -> Self {
+        Self {
+            failed_attempts: 0,
+            last_attempt: 0,
+            lockout_until: 0,
+        }
+    }
+
+    // Check if the admin account is currently locked out
+    fn is_locked_out(&self, current_time: u64) -> bool {
+        current_time < self.lockout_until
+    }
+
+    // Reset attempt counter if lockout duration has passed
+    fn maybe_reset_attempts(&mut self, current_time: u64) {
+        if current_time - self.last_attempt > ADMIN_LOCKOUT_DURATION {
+            self.failed_attempts = 0;
+            self.lockout_until = 0;
+        }
+    }
+
+    // Record a failed authentication attempt and implement lockout if needed
+    fn record_failed_attempt(&mut self, current_time: u64) {
+        self.failed_attempts += 1;
+        self.last_attempt = current_time;
+
+        if self.failed_attempts >= MAX_ADMIN_ATTEMPTS {
+            self.lockout_until = current_time + ADMIN_LOCKOUT_DURATION;
+        }
+    }
+
+    // Record successful authentication and reset counters
+    fn record_success(&mut self) {
+        self.failed_attempts = 0;
+        self.lockout_until = 0;
+    }
+}
+
+// Configuration structure for admin settings and security
+#[derive(Serialize, Deserialize)]
+struct AdminConfig {
+    auth_tracker: AdminAuthTracker,
+    setup_token: Option<String>,     // One-time setup token
+    setup_token_expiry: Option<u64>, // Token expiration timestamp
+    allowed_setup_ips: Vec<String>,  // Optional IP whitelist for setup
+}
+
+impl AdminConfig {
+    // Create new admin configuration with default values
+    fn new() -> Self {
+        Self {
+            auth_tracker: AdminAuthTracker::new(),
+            setup_token: None,
+            setup_token_expiry: None,
+            allowed_setup_ips: Vec::new(),
+        }
+    }
+
+    // Generate a new one-time setup token
+    fn generate_setup_token(&mut self) -> String {
+        // Generate cryptographically secure random token
+        let token: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(32)
+            .map(char::from)
+            .collect();
+
+        // Store token and set expiration
+        self.setup_token = Some(token.clone());
+        self.setup_token_expiry = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + SETUP_TOKEN_DURATION,
+        );
+
+        token
+    }
+
+    // Validate a provided setup token
+    fn validate_setup_token(&self, token: &str) -> bool {
+        if let (Some(stored_token), Some(expiry)) = (&self.setup_token, self.setup_token_expiry) {
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            stored_token == token && current_time < expiry
+        } else {
+            false
+        }
+    }
+
+    // New method: Load configuration from secure storage
+    fn load() -> Result<Self, String> {
+        let secure_config = SecureAdminConfig::new();
+        secure_config.load_config()
+    }
+
+    // New method: Save configuration to secure storage
+    fn save(&self) -> Result<(), String> {
+        let secure_config = SecureAdminConfig::new();
+        secure_config.save_config(self)
+    }
+}
+
+// Enhanced admin initialization with token verification
+pub fn enhanced_initialize_admin_credentials(setup_token: &str) -> Result<(), String> {
+    // Load and verify admin configuration
+    let mut config =
+        AdminConfig::load().map_err(|e| format!("Failed to load admin configuration: {}", e))?;
+
+    // Validate setup token
+    if !config.validate_setup_token(setup_token) {
+        return Err("Invalid or expired setup token".to_string());
+    }
+
+    // Proceed with admin initialization
+    let admin_manager = SecureAdminManager::new();
+
+    if admin_manager.is_initialized() {
+        return Err("Admin credentials are already initialized.".to_string());
+    }
+
+    println!("\n=== Initial Admin Setup ===");
+    println!("Please set the administrator password.");
+    println!("This password will be required for system configuration changes.");
+
+    // Get and validate admin password
+    let password = loop {
+        println!("\nEnter admin password (min 12 chars, must include uppercase, lowercase, number, and special char):");
+        let pwd = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+        if pwd.len() < 12 {
+            println!("Admin password must be at least 12 characters long.");
+            continue;
+        }
+
+        if let Err(e) = validate_password(&pwd) {
+            println!("Password validation failed: {:?}", e);
+            continue;
+        }
+
+        println!("Confirm password:");
+        let confirm = read_password().map_err(|e| format!("Failed to read password: {}", e))?;
+
+        if pwd != confirm {
+            println!("Passwords don't match. Please try again.");
+            continue;
+        }
+
+        break pwd;
+    };
+
+    // Initialize admin credentials
+    admin_manager.initialize_admin(&password)?;
+
+    // Clear used setup token
+    config.setup_token = None;
+    config.setup_token_expiry = None;
+    config
+        .save()
+        .map_err(|e| format!("Failed to update admin configuration: {}", e))?;
+
+    println!("\nAdmin credentials initialized successfully!");
+    Ok(())
+}
+
+// Function to generate initial admin setup token
+pub fn generate_admin_setup_token() -> Result<String, String> {
+    // Load current configuration
+    let mut config =
+        AdminConfig::load().map_err(|e| format!("Failed to load admin configuration: {}", e))?;
+
+    // Verify admin is not already initialized
+    let admin_manager = SecureAdminManager::new();
+    if admin_manager.is_initialized() {
+        return Err("Admin is already initialized".to_string());
+    }
+
+    // Generate and save new token
+    let token = config.generate_setup_token();
+
+    config
+        .save()
+        .map_err(|e| format!("Failed to save admin configuration: {}", e))?;
+
+    Ok(token)
+}
+
+// Enhanced admin verification with rate limiting
+pub fn enhanced_verify_admin(password: &str) -> Result<bool, String> {
+    // Load admin configuration
+    let mut config =
+        AdminConfig::load().map_err(|e| format!("Failed to load admin configuration: {}", e))?;
+
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Check for account lockout
+    if config.auth_tracker.is_locked_out(current_time) {
+        let remaining = config.auth_tracker.lockout_until - current_time;
+        return Err(format!(
+            "Admin authentication is locked. Try again in {} minutes.",
+            remaining / 60 + 1
+        ));
+    }
+
+    // Reset attempts if lockout duration has passed
+    config.auth_tracker.maybe_reset_attempts(current_time);
+
+    // Verify admin password
+    let admin_manager = SecureAdminManager::new();
+    match admin_manager.verify_admin(password) {
+        Ok(true) => {
+            config.auth_tracker.record_success();
+            config
+                .save()
+                .map_err(|e| format!("Failed to update admin configuration: {}", e))?;
+            Ok(true)
+        }
+        Ok(false) => {
+            config.auth_tracker.record_failed_attempt(current_time);
+            config
+                .save()
+                .map_err(|e| format!("Failed to update admin configuration: {}", e))?;
+            Ok(false)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+// Secure storage handler for admin configuration
+// This struct provides encrypted keyring storage for admin settings
+struct SecureAdminConfig {
+    keyring: Entry,              // Keyring entry specifically for admin config
+    master_key: SecureMasterKey, // Master key for encryption/decryption
+}
+
+impl SecureAdminConfig {
+    // Initialize secure storage handler with dedicated keyring entry
+    fn new() -> Self {
+        Self {
+            keyring: Entry::new("one-do-three", "admin-config")
+                .expect("Failed to create keyring entry"),
+            master_key: SecureMasterKey::new(),
+        }
+    }
+
+    // Save admin configuration securely to keyring using encryption
+    fn save_config(&self, config: &AdminConfig) -> Result<(), String> {
+        // Get the master key for encryption
+        let master_key = self
+            .master_key
+            .get_key()
+            .map_err(|e| format!("Failed to get master key: {}", e))?;
+
+        // Generate new IV for each save operation for better security
+        let iv = generate_random_iv();
+
+        // Convert config to JSON string for storage
+        let config_json = serde_json::to_string(config)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+        // Encrypt the configuration data
+        let encrypted_data = encrypt_data(&config_json, &master_key, &iv);
+
+        // Combine IV and encrypted data for storage
+        let mut storage_data = Vec::new();
+        storage_data.extend_from_slice(&iv);
+        storage_data.extend_from_slice(&encrypted_data);
+
+        // Store as base64 encoded string in keyring
+        let encoded_data = base64.encode(&storage_data);
+        self.keyring
+            .set_password(&encoded_data)
+            .map_err(|e| format!("Failed to store admin config: {}", e))
+    }
+
+    // Load admin configuration securely from keyring
+    fn load_config(&self) -> Result<AdminConfig, String> {
+        // Get the master key for decryption
+        let master_key = self
+            .master_key
+            .get_key()
+            .map_err(|e| format!("Failed to get master key: {}", e))?;
+
+        // Attempt to retrieve stored configuration
+        match self.keyring.get_password() {
+            Ok(encoded_data) => {
+                // Decode the base64 stored data
+                let storage_data = base64
+                    .decode(&encoded_data)
+                    .map_err(|e| format!("Failed to decode stored data: {}", e))?;
+
+                // Ensure we have at least enough data for the IV
+                if storage_data.len() < 16 {
+                    return Ok(AdminConfig::new()); // Return new config if data is invalid
+                }
+
+                // Split IV and encrypted data
+                let iv = &storage_data[..16];
+                let encrypted_data = &storage_data[16..];
+
+                // Decrypt and parse the configuration
+                let decrypted_data = decrypt_data(encrypted_data, &master_key, iv)
+                    .map_err(|e| format!("Failed to decrypt config: {}", e))?;
+
+                serde_json::from_str(&decrypted_data)
+                    .map_err(|e| format!("Failed to parse config: {}", e))
+            }
+            Err(_) => {
+                // If no configuration exists yet, return a new default configuration
+                Ok(AdminConfig::new())
+            }
+        }
+    }
+}
 
 // Structure representing a single task that includes progress tracking
 #[derive(Serialize, Deserialize, Debug)]
@@ -3122,9 +3460,24 @@ fn main() {
     if args.len() > 1 {
         match args[1].as_str() {
             "--admin-setup" => {
-                match initialize_admin_credentials() {
+                if args.len() < 3 {
+                    println!("Usage: --admin-setup <setup-token>");
+                    return;
+                }
+                let setup_token = &args[2];
+                match enhanced_initialize_admin_credentials(setup_token) {
                     Ok(_) => println!("Admin credentials initialized successfully!"),
                     Err(e) => println!("Failed to initialize admin credentials: {}", e),
+                }
+                return;
+            }
+            "--generate-admin-token" => {
+                match generate_admin_setup_token() {
+                    Ok(token) => {
+                        println!("\nGenerated admin setup token (valid for 1 hour):");
+                        println!("{}", token);
+                    }
+                    Err(e) => println!("Failed to generate setup token: {}", e),
                 }
                 return;
             }

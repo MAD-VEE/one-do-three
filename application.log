@@ -250,3 +250,7 @@
 [2025-02-20T18:14:35Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=am***er, resource=user_store, success=true, timestamp=2025-02-20 19:14:35, details=Some("user created and store saved")
 [2025-02-20T18:14:55Z INFO  one_do_three one_do_three] Data operation: op=verify_registration, user=am***er, resource=user_store, success=true, timestamp=2025-02-20 19:14:55, details=Some("User verified successfully")
 [2025-02-20T18:55:17Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T19:16:42Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T19:44:27Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T19:45:04Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T19:47:06Z INFO  one_do_three one_do_three] Logging system initialized
