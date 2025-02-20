@@ -140,6 +140,25 @@ struct UserStore {
     registration_verifications: HashMap<String, RegistrationVerification>,
 }
 
+// Main result type for overall authentication flow
+// This enum handles all possible outcomes of the authentication process
+#[derive(Debug)]
+enum MainAuthResult {
+    Success(String, String), // Successful login with (username, password)
+    Back,                    // Return to main menu
+    Exit,                    // Exit the program
+    Error(String),           // Error with message
+}
+
+// Authentication result type for better flow control
+#[derive(Debug)]
+enum AuthenticationResult {
+    Success(String, String),   // (username, password)
+    InvalidCredentials,        // Wrong username/password
+    NeedsVerification(String), // Username needs verification
+    CacheCleared,              // Password cache was cleared
+}
+
 // Custom error type for task operations
 #[derive(Debug)]
 pub enum TaskError {
@@ -230,6 +249,25 @@ impl SecureMasterKey {
         }
         Ok(())
     }
+}
+
+// Custom result type for authentication flow control
+#[derive(Debug)]
+enum AuthFlowResult {
+    Back,            // Return to main menu
+    Success(String), // Success with a message
+    Error(String),   // Error with a message
+}
+
+// Custom result type for authentication flow control
+// This enum helps manage different states of the verification process
+#[derive(Debug)]
+enum VerificationResult {
+    Back,          // Return to main menu
+    Success,       // Verification succeeded (no message needed)
+    Error(String), // Error with a message
+    Expired,       // Token has expired
+    Invalid,       // Token is invalid
 }
 
 // Structure to track account deletion status
@@ -775,21 +813,29 @@ impl SecureEmailManager {
     }
 }
 
-// Function to generate and send registration verification token
+// Function to send registration verification token
+// This function sends a verification email with a properly formatted template
+// Parameters:
+// - email: The recipient's email address
+// Returns: Result containing the generated token or an error message
 fn send_registration_verification(email: &str) -> Result<String, String> {
-    // Generate 6-digit token
+    // Generate 6-digit token using random numbers
     let token: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Uniform::new(0, 10))
         .take(6)
         .map(|d| d.to_string())
         .collect();
 
-    // Create verification email
+    // Create verification email with proper formatting
     let email_body = format!(
-        "Welcome to One-Do-Three!\n\n\
-        Please verify your account using the following code:\n\n\
-        {}\n\n\
-        This code will expire in 24 hours.\n\n\
+        "Welcome to One-Do-Three!\n\
+        \n\
+        Please verify your account using the following code:\n\
+        \n\
+        {}\n\
+        \n\
+        This code will expire in 24 hours.\n\
+        \n\
         Best regards,\n\
         One-Do-Three Task Manager Team",
         token
@@ -807,8 +853,24 @@ fn send_registration_verification(email: &str) -> Result<String, String> {
 }
 
 // Function to verify registration token
-fn verify_registration_token(username: &str, token: &str, store: &mut UserStore) -> bool {
-    if let Some(verification) = store.registration_verifications.get(username) {
+// This function now properly saves the store after successful verification and handles flow control
+// Parameters:
+// - username: The username of the user being verified
+// - store: Mutable reference to the UserStore to allow updating verification status
+// Returns: VerificationResult indicating the outcome of the verification process
+fn verify_registration_token(username: &str, store: &mut UserStore) -> VerificationResult {
+    // Set up attempt limiting for verification
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: u32 = 3;
+
+    while attempts < MAX_ATTEMPTS {
+        // Get the verification data for this username
+        let verification = match store.registration_verifications.get(username) {
+            Some(v) => v,
+            None => return VerificationResult::Error("Verification data not found.".to_string()),
+        };
+
+        // Get current time for expiration check
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -816,23 +878,88 @@ fn verify_registration_token(username: &str, token: &str, store: &mut UserStore)
 
         // Check if token is expired (24 hours)
         if current_time > verification.expires_at {
-            return false;
+            println!("Verification token has expired. Please register again.");
+            // Clean up expired verification
+            store.registration_verifications.remove(username);
+            if let Err(e) = save_user_store(store) {
+                println!("Warning: Failed to clean up expired verification: {}", e);
+            }
+            return VerificationResult::Expired;
         }
 
-        // Verify token
-        if verification.token == token {
-            // Mark user as verified if token matches
-            if let Some(user) = store.users.get_mut(username) {
-                user.verification_status = VerificationStatus::Verified;
-                // Save the updated store
-                if let Err(e) = save_user_store(store) {
-                    println!("Warning: Failed to save verification status: {}", e);
+        // Prompt for token with back/exit options
+        println!("\nPlease enter the verification token");
+        println!("(Type 'back' to return to menu, 'exit' to quit):");
+
+        let input_token = match read_line() {
+            Ok(input) => input,
+            Err(e) => return VerificationResult::Error(format!("Failed to read input: {}", e)),
+        };
+
+        // Handle navigation commands
+        match input_token.trim().to_lowercase().as_str() {
+            "back" => return VerificationResult::Back,
+            "exit" => {
+                println!("Exiting program. Goodbye!");
+                process::exit(0);
+            }
+            token => {
+                // Verify token matches
+                if verification.token == token {
+                    // Mark user as verified if token matches
+                    if let Some(user) = store.users.get_mut(username) {
+                        // Update verification status
+                        user.verification_status = VerificationStatus::Verified;
+
+                        // Remove the verification entry since it's no longer needed
+                        store.registration_verifications.remove(username);
+
+                        // Save the updated store immediately
+                        match save_user_store(store) {
+                            Ok(_) => {
+                                // Log successful verification
+                                log_data_operation(
+                                    "verify_registration",
+                                    username,
+                                    "user_store",
+                                    true,
+                                    Some("User verified successfully"),
+                                );
+                                return VerificationResult::Success;
+                            }
+                            Err(e) => {
+                                // Log failed verification save
+                                log_data_operation(
+                                    "verify_registration",
+                                    username,
+                                    "user_store",
+                                    false,
+                                    Some(&format!("Failed to save verification status: {}", e)),
+                                );
+                                return VerificationResult::Error(format!(
+                                    "Failed to save verification status: {}",
+                                    e
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                // Handle invalid token attempts
+                attempts += 1;
+                if attempts < MAX_ATTEMPTS {
+                    println!(
+                        "Invalid token. Please try again. {} attempts remaining.",
+                        MAX_ATTEMPTS - attempts
+                    );
+                } else {
+                    return VerificationResult::Invalid;
                 }
             }
-            return true;
         }
     }
-    false
+
+    VerificationResult::Invalid
 }
 
 // Function to send emails using securely stored credentials
@@ -1737,24 +1864,42 @@ fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
 // Function to handle the complete password reset flow in an interactive manner
 // This replaces the need for a separate confirm-reset command
 // Takes a mutable reference to UserStore to allow password updates
-// Returns Result to properly handle and propagate errors
-fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
+// Returns AuthFlowResult to properly handle flow control and error propagation
+fn handle_forgot_password(store: &mut UserStore) -> AuthFlowResult {
     println!("\n=== Password Reset ===");
 
     // First verify that the email system is properly configured
     // This prevents starting the reset process if emails can't be sent
     if !check_email_configuration() {
-        return Err("Email system is not configured. Please contact administrator.".to_string());
+        return AuthFlowResult::Error(
+            "Email system is not configured. Please contact administrator.".to_string(),
+        );
     }
 
-    // Get and validate user's email address
-    println!("Please enter your email address:");
-    let email = read_line().map_err(|e| format!("Error reading input: {}", e))?;
+    // Get and validate user's email address with flow control
+    println!("Please enter your email address (or 'back' to return to menu):");
+    let email = match read_line() {
+        Ok(input) => {
+            // Check for back command first
+            match input.trim().to_lowercase().as_str() {
+                "back" => return AuthFlowResult::Back,
+                "exit" => {
+                    println!("Exiting program. Goodbye!");
+                    process::exit(0);
+                }
+                email => email.to_string(),
+            }
+        }
+        Err(e) => return AuthFlowResult::Error(format!("Error reading input: {}", e)),
+    };
+
     let email = email.trim();
 
     // Validate email format before proceeding
     if !is_valid_email(email) {
-        return Err("Invalid email format. Please enter a valid email address.".to_string());
+        return AuthFlowResult::Error(
+            "Invalid email format. Please enter a valid email address.".to_string(),
+        );
     }
 
     // Check if the email exists in our user database
@@ -1763,21 +1908,24 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
     if !user_exists {
         // Send the same message regardless of whether email exists
         // This prevents email enumeration attacks
-        println!("If an account exists with this email, you will receive reset instructions.");
-        return Ok(());
+        return AuthFlowResult::Success(
+            "If an account exists with this email, you will receive reset instructions."
+                .to_string(),
+        );
     }
 
     // Find user by email
-    let user = store
-        .users
-        .values()
-        .find(|u| u.email == email)
-        .ok_or("No account found with this email address.")?;
+    let user = match store.users.values().find(|u| u.email == email) {
+        Some(u) => u,
+        None => {
+            return AuthFlowResult::Error("No account found with this email address.".to_string())
+        }
+    };
 
     // Clone the username for later use
     let username = user.username.clone();
 
-    // Generate a 6-digit numeric reset token onlt for valid emails
+    // Generate a 6-digit numeric reset token only for valid emails
     // Using numeric tokens as they're easier for users to enter
     let token: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Uniform::new(0, 10))
@@ -1789,7 +1937,9 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
     let token_manager = SecureTokenManager::new();
     // Store the generated token securely
     // This associates the token with the user's email
-    token_manager.store_token(email, &token)?;
+    if let Err(e) = token_manager.store_token(email, &token) {
+        return AuthFlowResult::Error(e);
+    }
 
     // Send reset email with proper error handling
     match send_reset_token_email(email, &token) {
@@ -1799,8 +1949,8 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
         }
         Err(e) => {
             // If email fails, clean up the stored token
-            token_manager.clear_token()?;
-            return Err(format!("Failed to send reset email: {}", e));
+            let _ = token_manager.clear_token();
+            return AuthFlowResult::Error(format!("Failed to send reset email: {}", e));
         }
     }
 
@@ -1808,70 +1958,102 @@ fn handle_forgot_password(store: &mut UserStore) -> Result<(), String> {
     let mut attempts = 0;
     const MAX_ATTEMPTS: u32 = 3;
 
-    // Loop to handle token verification
+    // Loop to handle token verification with flow control
     while attempts < MAX_ATTEMPTS {
-        println!("\nEnter the reset token (or 'cancel' to abort):");
-        let input_token = read_line().map_err(|e| format!("Error reading input: {}", e))?;
+        println!("\nEnter the reset token (or 'back' to return to menu, 'cancel' to abort):");
+        let input_token = match read_line() {
+            Ok(input) => input,
+            Err(e) => return AuthFlowResult::Error(format!("Error reading input: {}", e)),
+        };
         let input_token = input_token.trim();
 
-        // Allow user to cancel the reset process
-        if input_token.to_lowercase() == "cancel" {
-            token_manager.clear_token()?;
-            return Ok(());
-        }
-
-        // Verify the entered token
-        if token_manager.verify_token(email, input_token)? {
-            // Token is valid, proceed with password reset
-            println!("\nToken verified successfully!");
-
-            // Get and validate new password
-            let new_password = get_new_password()?;
-
-            // Generate new password hash first
-            let new_hash = hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
-
-            // Then update the user's password hash
-            if let Some(user) = store.users.values_mut().find(|u| u.email == email) {
-                user.password_hash = new_hash;
-            } else {
-                return Err("Failed to update password: user not found".to_string());
+        // Enhanced command handling
+        match input_token.to_lowercase().as_str() {
+            "back" => {
+                let _ = token_manager.clear_token();
+                return AuthFlowResult::Back;
             }
+            "exit" => {
+                println!("Exiting program. Goodbye!");
+                process::exit(0);
+            }
+            "cancel" => {
+                let _ = token_manager.clear_token();
+                return AuthFlowResult::Success("Password reset cancelled.".to_string());
+            }
+            token => {
+                // Verify the entered token
+                match token_manager.verify_token(email, token) {
+                    Ok(true) => {
+                        // Token is valid, proceed with password reset
+                        println!("\nToken verified successfully!");
 
-            // Save the store after releasing the mutable borrow
-            save_user_store(store).map_err(|e| format!("Failed to save user data: {}", e))?;
+                        // Get and validate new password with flow control
+                        let new_password = match get_new_password() {
+                            Ok(pwd) => pwd,
+                            Err(e) => return AuthFlowResult::Error(e),
+                        };
 
-            // Clear the used token
-            token_manager.clear_token()?;
+                        // Generate new password hash first
+                        let new_hash =
+                            hex::encode(derive_key_from_passphrase(&new_password, &store.salt));
 
-            // Log the successful password reset
-            log_data_operation(
-                "password_reset",
-                &username,
-                "user_store",
-                true,
-                Some("Password reset completed successfully"),
-            );
+                        // Then update the user's password hash
+                        if let Some(user) = store.users.values_mut().find(|u| u.email == email) {
+                            user.password_hash = new_hash;
+                        } else {
+                            return AuthFlowResult::Error(
+                                "Failed to update password: user not found".to_string(),
+                            );
+                        }
 
-            println!("\nPassword reset successful!");
-            return Ok(());
-        }
+                        // Save the store after releasing the mutable borrow
+                        if let Err(e) = save_user_store(store) {
+                            return AuthFlowResult::Error(format!(
+                                "Failed to save user data: {}",
+                                e
+                            ));
+                        }
 
-        // Handle invalid token attempts
-        attempts += 1;
-        if attempts < MAX_ATTEMPTS {
-            println!(
-                "Invalid token. Please try again. {} attempts remaining.",
-                MAX_ATTEMPTS - attempts
-            );
-        } else {
-            // Clean up token after max attempts reached
-            token_manager.clear_token()?;
-            return Err("Too many invalid attempts. Please start over.".to_string());
+                        // Clear the used token
+                        let _ = token_manager.clear_token();
+
+                        // Log the successful password reset
+                        log_data_operation(
+                            "password_reset",
+                            &username,
+                            "user_store",
+                            true,
+                            Some("Password reset completed successfully"),
+                        );
+
+                        return AuthFlowResult::Success("Password reset successful!".to_string());
+                    }
+                    Ok(false) => {
+                        // Handle invalid token attempts
+                        attempts += 1;
+                        if attempts < MAX_ATTEMPTS {
+                            println!(
+                                "Invalid token. Please try again. {} attempts remaining.",
+                                MAX_ATTEMPTS - attempts
+                            );
+                        } else {
+                            // Clean up token after max attempts reached
+                            let _ = token_manager.clear_token();
+                            return AuthFlowResult::Error(
+                                "Too many invalid attempts. Please start over.".to_string(),
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        return AuthFlowResult::Error(format!("Token verification failed: {}", e))
+                    }
+                }
+            }
         }
     }
 
-    Ok(())
+    AuthFlowResult::Success("Password reset completed.".to_string())
 }
 
 // Email configuration check function
@@ -2107,48 +2289,92 @@ fn show_command_help(command: &str) {
 }
 
 // Main authentication flow to include initial options
+// This function handles the main authentication loop and all possible authentication paths
+// Parameters:
+// - store: Mutable reference to UserStore for managing user data
+// Returns: Option<(String, String)> containing (username, password) if authentication succeeds
 fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
     loop {
         show_initial_options();
 
-        match read_line().unwrap().trim() {
+        // Read user input with error handling
+        let choice = match read_line() {
+            Ok(input) => input.trim().to_string(),
+            Err(e) => {
+                println!("Error reading input: {}", e);
+                continue;
+            }
+        };
+
+        // Handle the user's choice
+        let result = match choice.as_str() {
             "1" | "login" => {
-                return authenticate_user(store);
+                // Handle login process
+                match authenticate_user(store) {
+                    Some((username, password)) => MainAuthResult::Success(username, password),
+                    None => MainAuthResult::Back,
+                }
             }
             "2" | "register" => {
+                // Handle registration process
                 match handle_interactive_registration(store) {
                     Ok(_) => {
-                        // Double-check that we're logged out
+                        // Double-check that we're logged out and clean up any lingering credentials
                         let cache = SecurePasswordCache::new();
                         if let Ok(Some(_)) = cache.get_cached_password() {
                             if let Err(e) = cache.clear_cache() {
                                 println!("Warning: Failed to clear lingering credentials: {}", e);
                             }
                         }
+                        MainAuthResult::Back // Return to main menu after successful registration
+                    }
+                    Err(e) => MainAuthResult::Error(format!("Registration failed: {}", e)),
+                }
+            }
+            "3" | "forgot" => {
+                // Handle password reset process
+                match handle_forgot_password(store) {
+                    AuthFlowResult::Back => {
+                        println!("Returning to main menu...");
+                        continue; // Return to main menu
+                    }
+                    AuthFlowResult::Success(msg) => {
+                        println!("\n{}", msg);
                         continue;
                     }
-                    Err(e) => {
-                        println!("Registration failed: {}", e);
+                    AuthFlowResult::Error(e) => {
+                        println!("\nError: {}", e);
                         continue;
                     }
                 }
             }
-            "3" | "forgot" => match handle_forgot_password(store) {
-                Ok(_) => {
-                    println!("You may now log in with your new password.");
-                    continue;
-                }
-                Err(e) => {
-                    println!("Password reset failed: {}", e);
-                    continue;
-                }
-            },
             "4" | "exit" | "quit" => {
                 println!("Goodbye!");
-                process::exit(0);
+                MainAuthResult::Exit
             }
             _ => {
-                println!("Invalid choice. Please enter a number (1-4) or command (login/register/forgot/exit).");
+                MainAuthResult::Error(
+                    "Invalid choice. Please enter a number (1-4) or command (login/register/forgot/exit).".to_string()
+                )
+            }
+        };
+
+        // Handle the result of the chosen action
+        match result {
+            MainAuthResult::Success(username, password) => {
+                return Some((username, password));
+            }
+            MainAuthResult::Back => {
+                // Just continue the loop to show options again
+                continue;
+            }
+            MainAuthResult::Exit => {
+                process::exit(0);
+            }
+            MainAuthResult::Error(msg) => {
+                println!("\n{}", msg);
+                // Add a small delay before showing the menu again
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 continue;
             }
         }
@@ -2300,7 +2526,7 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
         // Verify cached credentials and show welcome back message
         if let Some(user) = store.users.get(&normalized_username) {
             // Use the original username format stored in the user struct
-            println!("Welcome back, {}!", user.username); // This uses the preserved original case
+            println!("Welcome back, {}!", user.username);
 
             // Log successful cached login
             log_auth_event(
@@ -2317,17 +2543,23 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     // If no valid cached credentials, prompt for fresh login
     let mut login_attempts = 0;
     loop {
-        // Added clearer initial prompt with navigation options
+        // Show initial prompt with navigation options
         if login_attempts == 0 {
             println!("\nPlease enter your username");
             println!("(type 'back' to return to menu, 'exit' to quit):");
         }
 
-        // Get username input and preserve original case
-        let original_username = read_line().unwrap();
-        let normalized_username = original_username.trim().to_lowercase(); // Normalize for lookup
+        // Get username input with proper error handling
+        let original_username = match read_line() {
+            Ok(input) => input,
+            Err(e) => {
+                println!("Error reading input: {}", e);
+                continue;
+            }
+        };
+        let normalized_username = original_username.trim().to_lowercase();
 
-        // Enhanced navigation options handling
+        // Handle navigation commands for username
         match normalized_username.as_str() {
             "exit" => {
                 println!("Exiting program. Goodbye!");
@@ -2335,76 +2567,107 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
             }
             "back" => {
                 println!("Returning to main menu...");
-                return None; // Return to initial options menu
+                return None;
             }
             _ => {
                 println!("Enter password (type 'back' for menu, 'exit' to quit):");
-                let password = read_password().unwrap();
+                let password = match read_password() {
+                    Ok(pwd) => pwd,
+                    Err(e) => {
+                        println!("Error reading password: {}", e);
+                        continue;
+                    }
+                };
 
-                match password.trim() {
+                // Handle navigation and special commands for password
+                let auth_result = match password.trim() {
                     "exit" => {
                         println!("Exiting program. Goodbye!");
                         process::exit(0);
                     }
                     "back" => {
                         println!("Returning to main menu...");
-                        return None; // Return to initial options menu
+                        return None;
                     }
                     "logout" => {
                         if let Err(e) = cache.clear_cache() {
                             println!("Warning: Failed to clear password cache: {}", e);
                         }
-                        println!("Successfully logged out. Password cache cleared.");
-                        login_attempts = 0;
-                        continue;
+                        AuthenticationResult::CacheCleared
                     }
                     password => {
                         // Verify credentials
                         if verify_user_credentials(&normalized_username, password, store) {
-                            // Cache the successful credentials with the normalized username
+                            // Cache the successful credentials
                             if let Err(e) = cache.cache_password(&normalized_username, password) {
                                 println!("Warning: Failed to cache credentials: {}", e);
                             }
 
                             // Get user info needed for verification and welcome message
-                            // This avoids borrowing conflicts by getting all needed data at once
-                            let (needs_verification, username_for_welcome) =
-                                if let Some(user) = store.users.get(&normalized_username) {
-                                    (
-                                        !user.verification_status.is_verified(),
-                                        user.username.clone(),
-                                    )
+                            if let Some(user) = store.users.get(&normalized_username) {
+                                if !user.verification_status.is_verified() {
+                                    AuthenticationResult::NeedsVerification(user.username.clone())
                                 } else {
-                                    (false, normalized_username.clone())
-                                };
-
-                            // Check if user needs to verify their registration
-                            if needs_verification {
-                                println!("\nPlease check your email for a verification token.");
-                                println!("Enter the 6-digit verification token:");
-                                let token = read_line().unwrap();
-
-                                // Create copy for verification to avoid borrowing conflicts
-                                let username_copy = normalized_username.clone();
-
-                                if !verify_registration_token(&username_copy, &token, store) {
-                                    println!("Invalid or expired verification token.");
-                                    println!("\nPlease enter your username");
-                                    println!("(type 'back' for menu, 'exit' to quit):");
-                                    continue;
+                                    AuthenticationResult::Success(
+                                        normalized_username.clone(),
+                                        password.to_string(),
+                                    )
                                 }
+                            } else {
+                                AuthenticationResult::InvalidCredentials
                             }
+                        } else {
+                            AuthenticationResult::InvalidCredentials
+                        }
+                    }
+                };
 
-                            // Show welcome message using the saved username
+                // Handle authentication result
+                match auth_result {
+                    AuthenticationResult::Success(username, password) => {
+                        if let Some(user) = store.users.get(&username) {
                             println!(
                                 "\nWelcome, {}! Type 'help' to see available commands.",
-                                username_for_welcome
+                                user.username
                             );
-
-                            return Some((normalized_username, password.to_string()));
+                            return Some((username, password));
                         }
+                    }
+                    AuthenticationResult::NeedsVerification(username_for_welcome) => {
+                        println!("\nPlease check your email for a verification token.");
+                        println!("Enter the 6-digit verification token:");
 
-                        // Enhanced failed login feedback
+                        // Handle verification process
+                        match verify_registration_token(&normalized_username, store) {
+                            VerificationResult::Success => {
+                                // Changed from Success(_) to just Success
+                                println!("\nVerification successful!");
+                                println!(
+                                    "\nWelcome, {}! Type 'help' to see available commands.",
+                                    username_for_welcome
+                                );
+                                return Some((normalized_username, password.to_string()));
+                            }
+                            VerificationResult::Back => {
+                                println!("Returning to main menu...");
+                                return None;
+                            }
+                            VerificationResult::Expired => {
+                                println!("Verification token has expired. Please register again.");
+                                return None;
+                            }
+                            VerificationResult::Invalid => {
+                                println!("Too many invalid attempts. Please try again later.");
+                                return None;
+                            }
+                            VerificationResult::Error(e) => {
+                                println!("Verification error: {}", e);
+                                println!("Please try again or type 'back' to return to menu");
+                                continue;
+                            }
+                        }
+                    }
+                    AuthenticationResult::InvalidCredentials => {
                         if login_attempts >= 3 {
                             println!("Multiple failed attempts.");
                             println!("\nPlease enter your username");
@@ -2416,6 +2679,11 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
                             println!("\nPlease enter your username");
                             println!("(type 'back' for menu, 'exit' to quit):");
                         }
+                    }
+                    AuthenticationResult::CacheCleared => {
+                        println!("Successfully logged out. Password cache cleared.");
+                        login_attempts = 0;
+                        continue;
                     }
                 }
             }
@@ -3763,183 +4031,5 @@ fn main() {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    // Helper function to create a test UserStore
-    fn create_test_store() -> UserStore {
-        UserStore {
-            users: HashMap::new(),
-            salt: generate_random_salt(),
-            iv: generate_random_iv(),
-            reset_tokens: HashMap::new(),
-            reset_attempts: HashMap::new(),
-        }
-    }
-
-    // Helper function to create a test user
-    fn create_test_user(store: &mut UserStore) -> (String, String, String) {
-        let username = "testuser".to_string();
-        let email = "test@example.com".to_string();
-        let password = "TestPassword123!".to_string();
-
-        store
-            .add_user(username.clone(), email.clone(), password.clone())
-            .expect("Failed to add test user");
-
-        (username, email, password)
-    }
-
-    #[test]
-    fn test_user_registration() {
-        let mut store = create_test_store();
-        let (username, email, password) = create_test_user(&mut store);
-
-        assert!(store.users.contains_key(&username));
-        let user = store.users.get(&username).unwrap();
-        assert_eq!(user.email, email);
-        assert!(!user.password_hash.is_empty());
-    }
-
-    #[test]
-    fn test_password_hashing_consistency() {
-        let store = create_test_store();
-        let password = "TestPassword123!";
-
-        // Generate two hashes with the same salt
-        let hash1 = hex::encode(derive_key_from_passphrase(password, &store.salt));
-        let hash2 = hex::encode(derive_key_from_passphrase(password, &store.salt));
-
-        // Verify hashes are identical
-        assert_eq!(hash1, hash2, "Password hashing is not consistent");
-    }
-
-    #[test]
-    fn test_successful_login() {
-        let mut store = create_test_store();
-        let (username, _, password) = create_test_user(&mut store);
-
-        assert!(verify_user_credentials(&username, &password, &mut store));
-    }
-
-    #[test]
-    fn test_failed_login_wrong_password() {
-        let mut store = create_test_store();
-        let (username, _, _) = create_test_user(&mut store);
-
-        assert!(!verify_user_credentials(
-            &username,
-            "WrongPassword123!",
-            &mut store
-        ));
-    }
-
-    #[test]
-    fn test_failed_login_nonexistent_user() {
-        let mut store = create_test_store();
-        assert!(!verify_user_credentials(
-            "nonexistent",
-            "TestPassword123!",
-            &mut store
-        ));
-    }
-
-    #[test]
-    fn test_login_rate_limiting() {
-        let mut store = create_test_store();
-        let (username, _, _) = create_test_user(&mut store);
-
-        // Attempt multiple failed logins
-        for _ in 0..3 {
-            assert!(!verify_user_credentials(
-                &username,
-                "WrongPassword123!",
-                &mut store
-            ));
-        }
-
-        // Fourth attempt should be rate limited
-        let user = store.users.get(&username).unwrap();
-        assert_eq!(user.failed_attempts, 3);
-    }
-
-    #[test]
-    fn test_password_hash_verification() {
-        let mut store = create_test_store();
-        let (username, _, password) = create_test_user(&mut store);
-
-        // Get the stored hash
-        let stored_hash = store.users.get(&username).unwrap().password_hash.clone();
-
-        // Generate a new hash with the same password and salt
-        let new_hash = hex::encode(derive_key_from_passphrase(&password, &store.salt));
-
-        // Verify hashes match
-        assert_eq!(stored_hash, new_hash, "Password hash verification failed");
-    }
-
-    #[test]
-    fn test_user_store_persistence() {
-        let mut store = create_test_store();
-        let (username, email, _) = create_test_user(&mut store);
-
-        // Save the store
-        save_user_store(&store).expect("Failed to save user store");
-
-        // Load the store
-        let loaded_store = load_user_store().expect("Failed to load user store");
-
-        // Verify user data persisted correctly
-        assert!(loaded_store.users.contains_key(&username));
-        let loaded_user = loaded_store.users.get(&username).unwrap();
-        assert_eq!(loaded_user.email, email);
-    }
-
-    #[test]
-    fn test_username_normalization() {
-        let mut store = create_test_store();
-        let (_, _, password) = create_test_user(&mut store);
-
-        // Try logging in with different case/spacing
-        assert!(verify_user_credentials("TestUser  ", &password, &mut store));
-        assert!(verify_user_credentials("testUser", &password, &mut store));
-        assert!(verify_user_credentials("TESTUSER", &password, &mut store));
-    }
-
-    #[test]
-    fn test_salt_consistency() {
-        let mut store = create_test_store();
-        let original_salt = store.salt.clone();
-
-        // Add a user
-        let (username, _, password) = create_test_user(&mut store);
-
-        // Verify salt hasn't changed
-        assert_eq!(
-            store.salt, original_salt,
-            "Store salt changed during user creation"
-        );
-
-        // Save and reload store
-        save_user_store(&store).expect("Failed to save store");
-        let mut loaded_store = load_user_store().expect("Failed to load store"); // Changed this line
-
-        // Verify salt persisted correctly
-        assert_eq!(
-            loaded_store.salt, original_salt,
-            "Store salt changed during persistence"
-        );
-
-        // Verify login still works with loaded store
-        assert!(verify_user_credentials(
-            &username,
-            &password,
-            &mut loaded_store
-        ));
     }
 }

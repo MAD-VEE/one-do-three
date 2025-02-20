@@ -231,3 +231,22 @@
 [2025-02-20T14:33:32Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=****, resource=test, success=true, timestamp=2025-02-20 15:33:32, details=None
 [2025-02-20T14:37:25Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-20T15:46:45Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T15:47:53Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T15:48:12Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=Am***er, resource=user_store, success=true, timestamp=2025-02-20 16:48:12, details=Some("starting user registration")
+[2025-02-20T15:48:13Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=Am***er, resource=user_store, success=true, timestamp=2025-02-20 16:48:13, details=Some("user created and store saved")
+[2025-02-20T15:57:03Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T15:57:06Z INFO  one_do_three one_do_three] Auth event: type=forced_logout, user=am***er, success=true, timestamp=2025-02-20 16:57:06, details=Some("Logout due to new registration")
+[2025-02-20T15:57:20Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=Am***er, resource=user_store, success=true, timestamp=2025-02-20 16:57:20, details=Some("starting user registration")
+[2025-02-20T15:57:22Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=Am***er, resource=user_store, success=true, timestamp=2025-02-20 16:57:22, details=Some("user created and store saved")
+[2025-02-20T16:01:59Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T16:02:02Z INFO  one_do_three one_do_three] Auth event: type=forced_logout, user=am***er, success=true, timestamp=2025-02-20 17:02:02, details=Some("Logout due to new registration")
+[2025-02-20T16:02:19Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T16:02:29Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T18:13:09Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T18:13:32Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T18:13:44Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T18:14:19Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T18:14:34Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=am***er, resource=user_store, success=true, timestamp=2025-02-20 19:14:34, details=Some("starting user registration")
+[2025-02-20T18:14:35Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=am***er, resource=user_store, success=true, timestamp=2025-02-20 19:14:35, details=Some("user created and store saved")
+[2025-02-20T18:14:55Z INFO  one_do_three one_do_three] Data operation: op=verify_registration, user=am***er, resource=user_store, success=true, timestamp=2025-02-20 19:14:55, details=Some("User verified successfully")
+[2025-02-20T18:55:17Z INFO  one_do_three one_do_three] Logging system initialized
