@@ -222,3 +222,12 @@
 [2025-02-19T19:58:20Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-19 20:58:20, details=Some("New user registered successfully")
 [2025-02-19T19:59:14Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-19T19:59:15Z INFO  one_do_three one_do_three] Auth event: type=login, user=****, success=true, timestamp=2025-02-19 20:59:15, details=Some("using cached credentials")
+[2025-02-20T14:30:30Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T14:31:40Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T14:32:44Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T14:32:58Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-20 15:32:58, details=Some("starting user registration")
+[2025-02-20T14:32:59Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-20 15:32:59, details=Some("user created and store saved")
+[2025-02-20T14:32:59Z INFO  one_do_three one_do_three] Auth event: type=registration, user=****, success=true, timestamp=2025-02-20 15:32:59, details=Some("New user registered successfully")
+[2025-02-20T14:33:32Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=****, resource=test, success=true, timestamp=2025-02-20 15:33:32, details=None
+[2025-02-20T14:37:25Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-20T15:46:45Z INFO  one_do_three one_do_three] Logging system initialized

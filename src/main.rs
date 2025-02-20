@@ -126,9 +126,10 @@ struct User {
     last_failed_attempt: u64,
     tasks_file: String, // Each user gets their own encrypted tasks file
     last_activity: u64, // Timestamp of last user activity
+    verification_status: VerificationStatus,
 }
 
-// Container for all users with encryption metadata for secure storage, and a token store to track active reset tokens
+// Container for all users with encryption metadata for secure storage, and a token store to track active reset tokens, plus registration verifications
 #[derive(Serialize, Deserialize)]
 struct UserStore {
     users: HashMap<String, User>,
@@ -136,6 +137,7 @@ struct UserStore {
     iv: Vec<u8>,
     reset_tokens: HashMap<String, PasswordResetToken>,
     reset_attempts: HashMap<String, ResetAttemptTracker>, // Tracks reset attempts by email
+    registration_verifications: HashMap<String, RegistrationVerification>,
 }
 
 // Custom error type for task operations
@@ -539,6 +541,29 @@ fn handle_password_change(
     }
 }
 
+// Registration verification
+#[derive(Serialize, Deserialize)]
+struct RegistrationVerification {
+    token: String,
+    username: String,
+    expires_at: u64,
+    verified: bool,
+}
+
+// Define verification status enum
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+enum VerificationStatus {
+    Unverified,
+    Verified,
+}
+
+impl VerificationStatus {
+    // Helper method to check if verified
+    fn is_verified(&self) -> bool {
+        matches!(self, VerificationStatus::Verified)
+    }
+}
+
 // Structure to hold SMTP credentials with metadata
 #[derive(Serialize, Deserialize)]
 pub struct SmtpCredentials {
@@ -748,6 +773,66 @@ impl SecureEmailManager {
             .delete_password()
             .map_err(|e| format!("Failed to delete credentials: {}", e))
     }
+}
+
+// Function to generate and send registration verification token
+fn send_registration_verification(email: &str) -> Result<String, String> {
+    // Generate 6-digit token
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Uniform::new(0, 10))
+        .take(6)
+        .map(|d| d.to_string())
+        .collect();
+
+    // Create verification email
+    let email_body = format!(
+        "Welcome to One-Do-Three!\n\n\
+        Please verify your account using the following code:\n\n\
+        {}\n\n\
+        This code will expire in 24 hours.\n\n\
+        Best regards,\n\
+        One-Do-Three Task Manager Team",
+        token
+    );
+
+    // Send verification email
+    match send_email(
+        email,
+        "Welcome to One-Do-Three - Verify Your Account",
+        &email_body,
+    ) {
+        Ok(_) => Ok(token),
+        Err(e) => Err(format!("Failed to send verification email: {}", e)),
+    }
+}
+
+// Function to verify registration token
+fn verify_registration_token(username: &str, token: &str, store: &mut UserStore) -> bool {
+    if let Some(verification) = store.registration_verifications.get(username) {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Check if token is expired (24 hours)
+        if current_time > verification.expires_at {
+            return false;
+        }
+
+        // Verify token
+        if verification.token == token {
+            // Mark user as verified if token matches
+            if let Some(user) = store.users.get_mut(username) {
+                user.verification_status = VerificationStatus::Verified;
+                // Save the updated store
+                if let Err(e) = save_user_store(store) {
+                    println!("Warning: Failed to save verification status: {}", e);
+                }
+            }
+            return true;
+        }
+    }
+    false
 }
 
 // Function to send emails using securely stored credentials
@@ -1072,6 +1157,7 @@ impl UserStore {
             last_failed_attempt: 0,
             tasks_file: String::new(),
             last_activity: current_time,
+            verification_status: VerificationStatus::Unverified, // Initialize as unverified
         };
 
         // Generate secure filename for user's tasks
@@ -1331,11 +1417,11 @@ fn handle_interactive_task_creation() -> Task {
     println!("3. Numeric [60%]                          (or type 'numeric')");
     println!("4. Detailed [======>   ] 6/10             (or type 'detailed')");
     println!("Enter style number or command (default: Simple):");
-
-    let progress_bar_style = loop {
+    let style = loop {
+        // Changed variable name to 'style' for clarity
         let input = read_line().unwrap();
         match input.trim() {
-            "simple" | "1" => break "simple".to_string(),
+            "" | "simple" | "1" => break "simple".to_string(),
             "block" | "2" => break "block".to_string(),
             "numeric" | "3" => break "numeric".to_string(),
             "detailed" | "4" => break "detailed".to_string(),
@@ -1343,13 +1429,31 @@ fn handle_interactive_task_creation() -> Task {
         }
     };
 
+    // Get initial progress (optional, defaults to 0)
+    println!("\nEnter initial progress percentage (0-100, press Enter for 0%):");
+    let progress = {
+        let input = read_line().unwrap();
+        if input.trim().is_empty() {
+            0 // Default progress
+        } else {
+            match input.trim().parse::<u8>() {
+                Ok(p) if p <= 100 => p,
+                _ => {
+                    println!("Invalid progress value. Setting to 0%");
+                    0
+                }
+            }
+        }
+    };
+
+    // Return the new task with all fields properly initialized
     Task {
         name,
         description,
         priority,
         completed: false,
-        progress_percent: 0,
-        progress_bar_style,
+        progress_percent: progress,
+        progress_bar_style: style, // Use the selected style instead of hardcoded "simple"
     }
 }
 
@@ -1394,81 +1498,66 @@ fn handle_interactive_task_edit(existing_task: &Task) -> Task {
         }
     };
 
-    // Get new completion status or keep current
+    // Get new completion status and handle progress accordingly
     println!("\nMark as completed? (yes/no/Enter to keep current):");
-    let completed = loop {
+    let (completed, progress_percent) = loop {
         let input = read_line().unwrap();
         if input.trim().is_empty() {
-            break existing_task.completed;
+            // If keeping current completion status, ask for progress only if task is not completed
+            if !existing_task.completed {
+                // Ask for progress update without yes/no confirmation
+                println!("\nEnter new progress percentage (0-100, press Enter to keep current):");
+                let progress_input = read_line().unwrap();
+                let new_progress = if progress_input.trim().is_empty() {
+                    existing_task.progress_percent
+                } else {
+                    match progress_input.trim().parse::<u8>() {
+                        Ok(p) if p <= 100 => p,
+                        _ => {
+                            println!("Invalid progress value. Keeping current progress.");
+                            existing_task.progress_percent
+                        }
+                    }
+                };
+                break (existing_task.completed, new_progress);
+            } else {
+                // If task is already completed, keep progress at 100%
+                break (existing_task.completed, existing_task.progress_percent);
+            }
         }
 
         match input.to_lowercase().as_str() {
-            "yes" | "y" => break true,
-            "no" | "n" => break false,
+            "yes" | "y" => break (true, 100), // Automatically set progress to 100% when completed
+            "no" | "n" => {
+                // If marked as not completed, ask for progress
+                println!("\nEnter new progress percentage (0-100, press Enter to keep current):");
+                let progress_input = read_line().unwrap();
+                let new_progress = if progress_input.trim().is_empty() {
+                    existing_task.progress_percent
+                } else {
+                    match progress_input.trim().parse::<u8>() {
+                        Ok(p) if p <= 100 => p,
+                        _ => {
+                            println!("Invalid progress value. Keeping current progress.");
+                            existing_task.progress_percent
+                        }
+                    }
+                };
+                break (false, new_progress);
+            }
             _ => println!("Invalid input. Please enter yes or no:"),
         }
     };
 
-    // Update progress tracking
-    println!("\nUpdate progress? (yes/no/Enter to keep current):");
-    let progress_input = read_line().unwrap();
-    let (progress_percent, progress_bar_style) = if progress_input.trim().to_lowercase() == "yes" {
-        println!(
-            "\nEnter new progress percentage (0-100, Enter to keep current: {}%):",
-            existing_task.progress_percent
-        );
-        let new_progress = read_line().unwrap();
-        let progress_percent = if new_progress.trim().is_empty() {
-            existing_task.progress_percent
-        } else {
-            match new_progress.trim().parse::<u8>() {
-                Ok(p) if p <= 100 => p,
-                _ => {
-                    println!("Invalid progress value. Keeping current progress.");
-                    existing_task.progress_percent
-                }
-            }
-        };
-
-        // Update progress bar style
-        println!("\nSelect new progress bar style (Enter to keep current):");
-        println!("1. Simple  [=====>    ]");
-        println!("2. Block   [██████    ]");
-        println!("3. Numeric [60%]");
-        println!("4. Detailed [======>   ] 6/10");
-
-        let style_input = read_line().unwrap();
-        let progress_bar_style = if style_input.trim().is_empty() {
-            existing_task.progress_bar_style.clone()
-        } else {
-            match style_input.trim() {
-                "1" => "simple".to_string(),
-                "2" => "block".to_string(),
-                "3" => "numeric".to_string(),
-                "4" => "detailed".to_string(),
-                _ => {
-                    println!("Invalid style. Keeping current style.");
-                    existing_task.progress_bar_style.clone()
-                }
-            }
-        };
-
-        (progress_percent, progress_bar_style)
-    } else {
-        (
-            existing_task.progress_percent,
-            existing_task.progress_bar_style.clone(),
-        )
-    };
-
     // Create and return updated task
+    // Keep the existing progress bar style as it can be changed through the progress command
     Task {
         name: existing_task.name.clone(),
         description,
         priority,
         completed,
         progress_percent,
-        progress_bar_style,
+        progress_bar_style: existing_task.progress_bar_style.clone(),
     }
 }
 
@@ -1604,47 +1693,43 @@ fn handle_interactive_registration(store: &mut UserStore) -> io::Result<()> {
     }
 
     // Add the new user
+    let email_clone = email.clone(); // Clone email before moving it
     match handle_user_creation(store, username.clone(), email, password) {
         Ok(_) => {
-            // Log successful registration
-            log_auth_event(
-                "registration",
-                &username,
-                true,
-                Some("New user registered successfully"),
-            );
+            // Generate and send verification token using cloned email
+            match send_registration_verification(&email_clone) {
+                Ok(token) => {
+                    // Store verification token
+                    let verification = RegistrationVerification {
+                        token,
+                        username: username.clone(),
+                        expires_at: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + 86400, // 24 hours
+                        verified: false,
+                    };
 
-            // Ensure we're in a logged-out state after registration
-            if let Err(e) = cache.clear_cache() {
-                println!(
-                    "Warning: Failed to clear credentials after registration: {}",
-                    e
-                );
+                    store
+                        .registration_verifications
+                        .insert(username.clone(), verification);
+
+                    println!("\nRegistration successful!");
+                    println!("Please check your email for a verification code.");
+                    println!("You will need to enter this code on your first login.");
+                }
+                Err(e) => {
+                    println!(
+                        "\nRegistration successful, but failed to send verification email: {}",
+                        e
+                    );
+                    println!("Please contact support for assistance.");
+                }
             }
-
-            println!("\nRegistration successful!");
-            println!("Please log in with your new account.");
             Ok(())
         }
-        Err(e) => {
-            // Log failed registration
-            log_auth_event(
-                "registration",
-                &username,
-                false,
-                Some(&format!("Registration failed: {}", e)),
-            );
-
-            // Clear cache on failure as well for consistency
-            if let Err(ce) = cache.clear_cache() {
-                println!(
-                    "Warning: Failed to clear credentials after failed registration: {}",
-                    ce
-                );
-            }
-
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -2230,36 +2315,47 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     }
 
     // If no valid cached credentials, prompt for fresh login
-    let mut attempts = 0;
+    let mut login_attempts = 0;
     loop {
-        if attempts == 0 {
-            println!("\nPlease enter your username (type 'exit' to quit):");
+        // Added clearer initial prompt with navigation options
+        if login_attempts == 0 {
+            println!("\nPlease enter your username");
+            println!("(type 'back' to return to menu, 'exit' to quit):");
         }
 
         // Get username input and preserve original case
         let original_username = read_line().unwrap();
         let normalized_username = original_username.trim().to_lowercase(); // Normalize for lookup
 
+        // Enhanced navigation options handling
         match normalized_username.as_str() {
             "exit" => {
-                println!("Operation cancelled by user.");
+                println!("Exiting program. Goodbye!");
                 process::exit(0);
             }
+            "back" => {
+                println!("Returning to main menu...");
+                return None; // Return to initial options menu
+            }
             _ => {
-                println!("Enter password:");
+                println!("Enter password (type 'back' for menu, 'exit' to quit):");
                 let password = read_password().unwrap();
 
                 match password.trim() {
                     "exit" => {
-                        println!("Operation cancelled by user.");
+                        println!("Exiting program. Goodbye!");
                         process::exit(0);
+                    }
+                    "back" => {
+                        println!("Returning to main menu...");
+                        return None; // Return to initial options menu
                     }
                     "logout" => {
                         if let Err(e) = cache.clear_cache() {
                             println!("Warning: Failed to clear password cache: {}", e);
                         }
                         println!("Successfully logged out. Password cache cleared.");
-                        attempts = 0;
+                        login_attempts = 0;
                         continue;
                     }
                     password => {
@@ -2270,26 +2366,55 @@ fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
                                 println!("Warning: Failed to cache credentials: {}", e);
                             }
 
-                            // Show welcome message for fresh login using original case from stored user
-                            if let Some(user) = store.users.get(&normalized_username) {
-                                println!(
-                                    "\nWelcome, {}! Type 'help' to see available commands.",
-                                    user.username
-                                );
+                            // Get user info needed for verification and welcome message
+                            // This avoids borrowing conflicts by getting all needed data at once
+                            let (needs_verification, username_for_welcome) =
+                                if let Some(user) = store.users.get(&normalized_username) {
+                                    (
+                                        !user.verification_status.is_verified(),
+                                        user.username.clone(),
+                                    )
+                                } else {
+                                    (false, normalized_username.clone())
+                                };
+
+                            // Check if user needs to verify their registration
+                            if needs_verification {
+                                println!("\nPlease check your email for a verification token.");
+                                println!("Enter the 6-digit verification token:");
+                                let token = read_line().unwrap();
+
+                                // Create copy for verification to avoid borrowing conflicts
+                                let username_copy = normalized_username.clone();
+
+                                if !verify_registration_token(&username_copy, &token, store) {
+                                    println!("Invalid or expired verification token.");
+                                    println!("\nPlease enter your username");
+                                    println!("(type 'back' for menu, 'exit' to quit):");
+                                    continue;
+                                }
                             }
+
+                            // Show welcome message using the saved username
+                            println!(
+                                "\nWelcome, {}! Type 'help' to see available commands.",
+                                username_for_welcome
+                            );
 
                             return Some((normalized_username, password.to_string()));
                         }
 
-                        // Handle failed login attempts
-                        if attempts >= 3 {
+                        // Enhanced failed login feedback
+                        if login_attempts >= 3 {
                             println!("Multiple failed attempts.");
-                            println!("Press ENTER to try again, type 'exit' to quit, or 'logout' to clear cache.");
-                            read_password().unwrap();
-                            attempts = 0;
+                            println!("\nPlease enter your username");
+                            println!("(type 'back' for menu, 'exit' to quit, or press ENTER to try again):");
+                            login_attempts = 0;
                         } else {
-                            attempts += 1;
-                            println!("Authentication failed. Please try again.");
+                            login_attempts += 1;
+                            println!("Authentication failed.");
+                            println!("\nPlease enter your username");
+                            println!("(type 'back' for menu, 'exit' to quit):");
                         }
                     }
                 }
@@ -2355,6 +2480,7 @@ fn create_user_store() -> UserStore {
         iv: generate_random_iv(),
         reset_tokens: HashMap::new(),
         reset_attempts: HashMap::new(),
+        registration_verifications: HashMap::new(), // Initialize verification
     }
 }
 
