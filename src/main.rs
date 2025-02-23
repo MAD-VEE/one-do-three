@@ -3812,7 +3812,7 @@ fn main() {
 
                                     if tasks.is_empty() {
                                         println!("No tasks available.");
-                                        return;
+                                        continue;
                                     }
 
                                     let filter = sub_matches.get_one::<String>("filter");
