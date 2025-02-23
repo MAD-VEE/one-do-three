@@ -254,3 +254,12 @@
 [2025-02-20T19:44:27Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-20T19:45:04Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-20T19:47:06Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-23T10:57:17Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-23T11:05:23Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=be***22, resource=user_store, success=true, timestamp=2025-02-23 12:05:23, details=Some("starting user registration")
+[2025-02-23T11:05:25Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=be***22, resource=user_store, success=true, timestamp=2025-02-23 12:05:25, details=Some("user created and store saved")
+[2025-02-23T11:07:17Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=be***22, resource=user_store, success=true, timestamp=2025-02-23 12:07:17, details=Some("starting user registration")
+[2025-02-23T11:07:18Z INFO  one_do_three one_do_three] Data operation: op=create_user, user=be***22, resource=user_store, success=true, timestamp=2025-02-23 12:07:18, details=Some("user created and store saved")
+[2025-02-23T11:09:42Z INFO  one_do_three one_do_three] Data operation: op=verify_registration, user=be***22, resource=user_store, success=true, timestamp=2025-02-23 12:09:42, details=Some("User verified successfully")
+[2025-02-23T11:12:14Z INFO  one_do_three one_do_three] Logging system initialized
+[2025-02-23T11:12:21Z INFO  one_do_three one_do_three] Auth event: type=login, user=be***22, success=true, timestamp=2025-02-23 12:12:21, details=Some("using cached credentials")
+[2025-02-23T11:13:18Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=be***22, resource=new task1, success=true, timestamp=2025-02-23 12:13:18, details=None
