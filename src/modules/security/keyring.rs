@@ -1,6 +1,6 @@
-use std::io;
 use keyring::Entry;
 use rand::random;
+use std::io;
 
 /// Define a struct to handle secure storage and retrieval of the master key
 /// This provides a clean interface for all master key operations

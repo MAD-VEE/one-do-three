@@ -1,11 +1,13 @@
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
-use std::io::{self, Write};
 use sha2::Digest;
+use std::collections::HashMap;
+use std::io::{self, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::modules::encryption::{encrypt_data, decrypt_data};
-use crate::modules::encryption::keys::{derive_key_from_passphrase, generate_random_salt, generate_random_iv};
+use crate::modules::encryption::keys::{
+    derive_key_from_passphrase, generate_random_iv, generate_random_salt,
+};
+use crate::modules::encryption::{decrypt_data, encrypt_data};
 use crate::USERS_FILE;
 
 /// Define verification status enum
@@ -24,7 +26,7 @@ impl VerificationStatus {
 /// Represents a single user with their authentication details and task file location
 #[derive(Serialize, Deserialize, Debug)]
 pub struct User {
-    pub username: String,            // Original username as entered by user (for display)
+    pub username: String, // Original username as entered by user (for display)
     pub username_normalized: String, // Lowercase version for lookups and comparisons
     pub email: String,
     pub password_hash: String,
@@ -239,7 +241,7 @@ mod tests {
     #[test]
     fn test_user_creation() {
         let (mut store, _temp_file) = setup_test_user_store();
-        
+
         let result = store.add_user(
             "TestUser".to_string(),
             "test@example.com".to_string(),
@@ -260,11 +262,13 @@ mod tests {
     fn test_verification_status() {
         let (mut store, _temp_file) = setup_test_user_store();
 
-        store.add_user(
-            "UnverifiedUser".to_string(),
-            "unverified@example.com".to_string(),
-            "Password123!".to_string(),
-        ).unwrap();
+        store
+            .add_user(
+                "UnverifiedUser".to_string(),
+                "unverified@example.com".to_string(),
+                "Password123!".to_string(),
+            )
+            .unwrap();
 
         let user = store.users.get("unverifieduser").unwrap();
         assert!(!user.verification_status.is_verified());
@@ -278,20 +282,23 @@ mod tests {
     fn test_task_file_generation() {
         let (mut store, _temp_file) = setup_test_user_store();
 
-        store.add_user(
-            "FileTest".to_string(),
-            "file@example.com".to_string(),
-            "Password123!".to_string(),
-        ).unwrap();
+        store
+            .add_user(
+                "FileTest".to_string(),
+                "file@example.com".to_string(),
+                "Password123!".to_string(),
+            )
+            .unwrap();
 
         let user = store.users.get("filetest").unwrap();
-        
+
         // Verify filename format
         assert!(user.tasks_file.starts_with("tasks/user_"));
         assert!(user.tasks_file.ends_with(".dat"));
 
         // Verify it contains a hash component
-        let hash_part = user.tasks_file
+        let hash_part = user
+            .tasks_file
             .strip_prefix("tasks/user_")
             .unwrap()
             .strip_suffix(".dat")

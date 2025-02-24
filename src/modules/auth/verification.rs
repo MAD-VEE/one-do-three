@@ -161,11 +161,15 @@ mod tests {
         let (mut store, mut verification, _) = setup_test_verification();
 
         // Add verification to store
-        store.registration_verifications
+        store
+            .registration_verifications
             .insert(verification.username.clone(), verification.clone());
 
         // Set expiration to the past
-        if let Some(v) = store.registration_verifications.get_mut(&verification.username) {
+        if let Some(v) = store
+            .registration_verifications
+            .get_mut(&verification.username)
+        {
             v.expires_at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

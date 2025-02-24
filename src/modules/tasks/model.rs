@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Structure representing a single task that includes progress tracking
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Task {
     pub name: String,
     pub description: String,

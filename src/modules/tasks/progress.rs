@@ -1,5 +1,5 @@
-use crate::modules::utils::io::read_line;
 use super::model::Task;
+use crate::modules::utils::io::read_line;
 
 /// Function to handle interactive progress update
 pub fn handle_interactive_progress_update(task: &mut Task) -> Result<(), String> {

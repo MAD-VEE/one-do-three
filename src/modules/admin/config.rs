@@ -1,11 +1,11 @@
-use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::credentials::SecureAdminConfig;
 use crate::ADMIN_LOCKOUT_DURATION;
 use crate::SETUP_TOKEN_DURATION;
-use super::credentials::SecureAdminConfig;
 
 /// Structure to track admin authentication attempts
 #[derive(Serialize, Deserialize)]

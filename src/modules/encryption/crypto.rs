@@ -1,6 +1,6 @@
 use aes::Aes256;
-use block_modes::{BlockMode, Cbc};
 use block_modes::block_padding::Pkcs7;
+use block_modes::{BlockMode, Cbc};
 
 type Aes256Cbc = Cbc<Aes256, Pkcs7>;
 
@@ -11,7 +11,11 @@ pub fn encrypt_data(data: &str, encryption_key: &[u8], iv: &[u8]) -> Vec<u8> {
 }
 
 /// Function to decrypt data using AES-256-CBC
-pub fn decrypt_data(encrypted_data: &[u8], encryption_key: &[u8], iv: &[u8]) -> Result<String, String> {
+pub fn decrypt_data(
+    encrypted_data: &[u8],
+    encryption_key: &[u8],
+    iv: &[u8],
+) -> Result<String, String> {
     let cipher = Aes256Cbc::new_from_slices(encryption_key, iv).unwrap();
     match cipher.decrypt_vec(encrypted_data) {
         Ok(decrypted_data) => match String::from_utf8(decrypted_data) {
@@ -34,8 +38,8 @@ mod tests {
 
         // For testing, create a fixed key and IV to ensure consistency
         let encryption_key: Vec<u8> = vec![
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 
-            17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+            25, 26, 27, 28, 29, 30, 31, 32,
         ];
         let iv: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 

@@ -1,6 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
 use keyring::Entry;
 use serde_json;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::smtp::SmtpCredentials;
 

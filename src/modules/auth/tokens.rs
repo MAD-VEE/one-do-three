@@ -1,6 +1,16 @@
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
+use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Structure for storing password with timestamp in keyring
+#[derive(Serialize, Deserialize)]
+pub struct CachedPassword {
+    pub username: String,            // Store original username
+    pub username_normalized: String, // Add normalized version for lookups
+    pub password: String,
+    pub timestamp: u64,
+}
 
 /// PasswordResetToken struct with a user identifier
 #[derive(Serialize, Deserialize, Clone)]
@@ -69,6 +79,73 @@ impl SecureTokenManager {
         self.keyring
             .delete_password()
             .map_err(|e| format!("Failed to clear reset token: {}", e))
+    }
+}
+
+/// Secure password cache implementation using system keyring
+pub struct SecurePasswordCache {
+    keyring: Entry,
+}
+
+impl SecurePasswordCache {
+    /// Create a new instance of SecurePasswordCache
+    pub fn new() -> Self {
+        Self {
+            keyring: Entry::new("one-do-three", "task-password")
+                .expect("Failed to create keyring entry"),
+        }
+    }
+
+    /// Cache a password in the system keyring and update timestamp
+    pub fn cache_password(&self, username: &str, password: &str) -> io::Result<()> {
+        let original_username = username.trim().to_string();
+        let cached = CachedPassword {
+            username: original_username.clone(),
+            username_normalized: original_username.to_lowercase(),
+            password: password.to_string(),
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+
+        let encoded = serde_json::to_string(&cached)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        self.keyring
+            .set_password(&encoded)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        Ok(())
+    }
+
+    /// Retrieve cached password if it exists and hasn't expired
+    pub fn get_cached_password(&self) -> io::Result<Option<(String, String)>> {
+        match self.keyring.get_password() {
+            Ok(stored) => {
+                let cached: CachedPassword = serde_json::from_str(&stored)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+                let current_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                // Strict 15-minute timeout check
+                if current_time - cached.timestamp > 15 * 60 {
+                    self.clear_cache()?;
+                    Ok(None)
+                } else {
+                    // Do NOT update timestamp here - let it expire naturally
+                    Ok(Some((cached.username, cached.password))) // Return original username case
+                }
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Clear the cached password from the keyring
+    pub fn clear_cache(&self) -> io::Result<()> {
+        let _ = self.keyring.delete_password();
+        Ok(())
     }
 }
 

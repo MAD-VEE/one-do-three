@@ -106,7 +106,7 @@ mod tests {
     fn test_logging_initialization() {
         // Create temporary log file
         let log_file = NamedTempFile::new().unwrap();
-        
+
         // Configure logging to use temporary file
         let file = OpenOptions::new()
             .create(true)
@@ -122,6 +122,12 @@ mod tests {
             .try_init();
 
         // Verify initialization succeeded or logger was already initialized
-        assert!(result.is_ok() || result.unwrap_err().to_string().contains("already initialized"));
+        assert!(
+            result.is_ok()
+                || result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("already initialized")
+        );
     }
 }

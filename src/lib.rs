@@ -2,21 +2,13 @@
 mod modules;
 
 // Re-export everything from modules for easier access
-pub use modules::{
-    admin,
-    auth,
-    email,
-    encryption,
-    tasks,
-    security,
-    utils,
-};
+pub use modules::{admin, auth, email, encryption, security, tasks, utils};
 
 // Re-export commonly used types
-pub use modules::auth::store::UserStore;
-pub use modules::tasks::model::Task;
 pub use modules::admin::config::AdminConfig;
+pub use modules::auth::store::UserStore;
 pub use modules::email::manager::SecureEmailManager;
+pub use modules::tasks::model::Task;
 
 // Constants
 pub const USERS_FILE: &str = "users.json";
