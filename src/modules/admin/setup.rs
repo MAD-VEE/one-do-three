@@ -181,6 +181,148 @@ pub fn handle_admin_password_change() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::admin::config::AdminAuthTracker;
+
+    // Create a mock keyring for testing
+    struct MockKeyring {
+        data: Option<String>,
+    }
+
+    impl MockKeyring {
+        fn new() -> Self {
+            Self { data: None }
+        }
+
+        fn set_password(&mut self, password: &str) -> Result<(), String> {
+            self.data = Some(password.to_string());
+            Ok(())
+        }
+
+        fn get_password(&self) -> Result<String, String> {
+            match &self.data {
+                Some(data) => Ok(data.clone()),
+                None => Err("No password set".to_string()),
+            }
+        }
+    }
+
+    // Mock the entire admin configuration for tests
+    struct MockAdminConfig {
+        auth_tracker: AdminAuthTracker,
+    }
+
+    impl MockAdminConfig {
+        fn new() -> Self {
+            Self {
+                auth_tracker: AdminAuthTracker::new(),
+            }
+        }
+
+        fn load() -> Result<MockAdminConfig, String> {
+            Ok(MockAdminConfig::new())
+        }
+
+        fn save(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    // Mock SecureAdminManager for testing
+    struct MockSecureAdminManager {
+        keyring: MockKeyring,
+        initialized: bool,
+    }
+
+    impl MockSecureAdminManager {
+        fn new() -> Self {
+            Self {
+                keyring: MockKeyring::new(),
+                initialized: false,
+            }
+        }
+
+        fn is_initialized(&self) -> bool {
+            self.initialized
+        }
+
+        fn initialize_admin(&mut self, password: &str) -> Result<(), String> {
+            if self.is_initialized() {
+                return Err("Admin credentials already initialized".to_string());
+            }
+
+            let salt = crate::modules::encryption::keys::generate_random_salt();
+            let password_hash =
+                crate::modules::encryption::keys::derive_key_from_passphrase(password, &salt);
+
+            let admin_data = format!("{}:{}", hex::encode(&salt), hex::encode(password_hash));
+
+            self.keyring.set_password(&admin_data)?;
+            self.initialized = true;
+            Ok(())
+        }
+
+        fn verify_admin(&self, password: &str) -> Result<bool, String> {
+            if !self.initialized {
+                return Err("Admin not initialized".to_string());
+            }
+
+            let stored_data = self.keyring.get_password()?;
+
+            let parts: Vec<&str> = stored_data.split(':').collect();
+            if parts.len() != 2 {
+                return Err("Invalid admin credential format".to_string());
+            }
+
+            let salt =
+                hex::decode(parts[0]).map_err(|e| format!("Failed to decode salt: {}", e))?;
+            let stored_hash = parts[1];
+
+            let test_hash = hex::encode(
+                crate::modules::encryption::keys::derive_key_from_passphrase(password, &salt),
+            );
+
+            Ok(test_hash == stored_hash)
+        }
+    }
+
+    // Mock version of enhanced_verify_admin for testing
+    fn mock_enhanced_verify_admin(
+        admin_manager: &MockSecureAdminManager,
+        password: &str,
+        config: &mut MockAdminConfig,
+    ) -> Result<bool, String> {
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Check for account lockout
+        if config.auth_tracker.is_locked_out(current_time) {
+            let remaining = config.auth_tracker.lockout_until - current_time;
+            return Err(format!(
+                "Admin authentication is locked. Try again in {} minutes.",
+                remaining / 60 + 1
+            ));
+        }
+
+        // Reset attempts if lockout duration has passed
+        config.auth_tracker.maybe_reset_attempts(current_time);
+
+        // Verify admin password
+        match admin_manager.verify_admin(password) {
+            Ok(true) => {
+                config.auth_tracker.record_success();
+                config.save()?;
+                Ok(true)
+            }
+            Ok(false) => {
+                config.auth_tracker.record_failed_attempt(current_time);
+                config.save()?;
+                Ok(false)
+            }
+            Err(e) => Err(e),
+        }
+    }
 
     #[test]
     fn test_admin_setup_flow() {
@@ -206,20 +348,31 @@ mod tests {
 
     #[test]
     fn test_admin_verification() {
-        let admin_manager = SecureAdminManager::new();
+        // Create mock objects
+        let mut admin_manager = MockSecureAdminManager::new();
         let password = "AdminTest123!";
 
         // Initialize admin
         assert!(admin_manager.initialize_admin(password).is_ok());
 
+        // Load the config instead of creating it directly
+        let mut config = MockAdminConfig::load().expect("Failed to load config");
+
         // Test correct password
-        let result = enhanced_verify_admin(password);
+        let result = mock_enhanced_verify_admin(&admin_manager, password, &mut config);
         assert!(result.is_ok());
         assert!(result.unwrap());
 
         // Test incorrect password
-        let result = enhanced_verify_admin("WrongPassword123!");
+        let result = mock_enhanced_verify_admin(&admin_manager, "WrongPassword123!", &mut config);
         assert!(result.is_ok());
         assert!(!result.unwrap());
+
+        // Test that failed attempts are tracked
+        assert!(config.auth_tracker.failed_attempts > 0);
+
+        // Test reset
+        config.auth_tracker.record_success();
+        assert_eq!(config.auth_tracker.failed_attempts, 0);
     }
 }

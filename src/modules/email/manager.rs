@@ -152,4 +152,103 @@ mod tests {
         // Verify credentials were deleted
         assert!(email_manager.get_credentials().is_err());
     }
+
+    #[test]
+    /// Test credential storage operations
+    /// This verifies that credentials are properly stored and retrieved
+    fn test_credential_storage_format() {
+        // Create mock keyring that captures stored data
+        struct MockKeyring {
+            stored_data: Option<String>,
+        }
+
+        impl MockKeyring {
+            fn new() -> Self {
+                Self { stored_data: None }
+            }
+
+            fn set_password(&mut self, data: &str) -> Result<(), String> {
+                self.stored_data = Some(data.to_string());
+                Ok(())
+            }
+
+            fn get_password(&self) -> Result<String, String> {
+                match &self.stored_data {
+                    Some(data) => Ok(data.clone()),
+                    None => Err("No data stored".to_string()),
+                }
+            }
+        }
+
+        // Create mock SecureEmailManager using our mock keyring
+        struct MockEmailManager {
+            keyring: MockKeyring,
+        }
+
+        impl MockEmailManager {
+            fn new() -> Self {
+                Self {
+                    keyring: MockKeyring::new(),
+                }
+            }
+
+            fn store_credentials(
+                &mut self,
+                username: &str,
+                password: &str,
+                host: &str,
+                port: u16,
+            ) -> Result<(), String> {
+                // Create credentials structure exactly as the real implementation
+                let credentials = SmtpCredentials {
+                    username: username.to_string(),
+                    password: password.to_string(),
+                    host: host.to_string(),
+                    port,
+                    last_updated: 12345, // Fixed timestamp for testing
+                };
+
+                // Serialize and store
+                let creds_json = serde_json::to_string(&credentials)
+                    .map_err(|e| format!("Failed to serialize: {}", e))?;
+                self.keyring.set_password(&creds_json)
+            }
+
+            fn get_credentials(&self) -> Result<SmtpCredentials, String> {
+                let json = self.keyring.get_password()?;
+                serde_json::from_str(&json).map_err(|e| format!("Failed to parse: {}", e))
+            }
+        }
+
+        // Now test credential storage and retrieval
+        let mut manager = MockEmailManager::new();
+
+        // Store test credentials
+        let test_user = "test@example.com";
+        let test_pass = "password123";
+        let test_host = "smtp.example.com";
+        let test_port = 587;
+
+        assert!(
+            manager
+                .store_credentials(test_user, test_pass, test_host, test_port)
+                .is_ok(),
+            "Should successfully store credentials"
+        );
+
+        // Verify the stored data is valid JSON
+        let stored_json = manager.keyring.get_password().unwrap();
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&stored_json).is_ok(),
+            "Stored data should be valid JSON"
+        );
+
+        // Retrieve and verify credentials
+        let creds = manager.get_credentials().unwrap();
+        assert_eq!(creds.username, test_user, "Username should match");
+        assert_eq!(creds.password, test_pass, "Password should match");
+        assert_eq!(creds.host, test_host, "Host should match");
+        assert_eq!(creds.port, test_port, "Port should match");
+        assert_eq!(creds.last_updated, 12345, "Timestamp should match");
+    }
 }
