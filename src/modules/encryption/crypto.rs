@@ -52,6 +52,9 @@ mod tests {
 
         // Ensure encrypted data is not empty
         assert!(!encrypted_data.is_empty());
+
+        // We can't reliably compare the encrypted data as UTF-8 string since it might not be valid UTF-8
+        // So we'll just make sure it's different from the original in binary form
         assert_ne!(encrypted_data, original_data.as_bytes());
 
         // Decrypt the data

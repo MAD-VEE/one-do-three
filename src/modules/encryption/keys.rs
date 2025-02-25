@@ -35,20 +35,28 @@ mod tests {
     use super::*;
 
     #[test]
+    /// Test key derivation from passphrase
     fn test_key_derivation() {
+        // Test data
         let passphrase = "MySecurePassword123!";
         let salt = generate_random_salt();
 
+        // Derive key
         let key = derive_key_from_passphrase(passphrase, &salt);
+
+        // Key should be 32 bytes
         assert_eq!(key.len(), 32);
 
+        // Deriving again with the same passphrase and salt should yield the same key
         let key2 = derive_key_from_passphrase(passphrase, &salt);
         assert_eq!(key, key2);
 
+        // Using a different passphrase should yield a different key
         let different_passphrase = "DifferentPassword456!";
         let key3 = derive_key_from_passphrase(different_passphrase, &salt);
         assert_ne!(key, key3);
 
+        // Using a different salt should yield a different key
         let different_salt = generate_random_salt();
         let key4 = derive_key_from_passphrase(passphrase, &different_salt);
         assert_ne!(key, key4);

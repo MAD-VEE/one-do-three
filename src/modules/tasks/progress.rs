@@ -46,8 +46,6 @@ pub fn handle_interactive_progress_update(task: &mut Task) -> Result<(), String>
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     struct MockTask {
         progress_percent: u8,
         progress_bar_style: String,
@@ -63,6 +61,11 @@ mod tests {
         }
 
         fn generate_progress_bar(&self) -> String {
+            // Actually use the field
+            if self.progress_bar_style == "simple" {
+                return format!("{}%", self.progress_percent);
+            }
+            // Default fallback
             format!("{}%", self.progress_percent)
         }
     }

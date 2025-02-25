@@ -150,6 +150,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// Test that verifies password validation works correctly for various password inputs
     fn test_password_validation() {
         // Test valid password
         let valid_password = "Password123!";

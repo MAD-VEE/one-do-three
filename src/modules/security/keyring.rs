@@ -9,6 +9,7 @@ pub struct SecureMasterKey {
     keyring: Entry,
 }
 
+// Implementation block for SecureMasterKey containing all its methods
 impl SecureMasterKey {
     /// Constructor for creating a new instance of SecureMasterKey
     /// This sets up access to the system keyring with our application's identifier
@@ -137,7 +138,9 @@ mod tests {
     }
 
     #[test]
+    /// Test the SecureMasterKey functionality
     fn test_secure_master_key() {
+        // Create a new instance
         let mut master_key = MockSecureMasterKey::new();
 
         // Initially, there should be no key
@@ -160,6 +163,7 @@ mod tests {
     }
 
     #[test]
+    /// Test the MockKeyring delete_password functionality
     fn test_mock_keyring() {
         let mut keyring = MockKeyring::new();
 

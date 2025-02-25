@@ -283,7 +283,7 @@ pub fn handle_add_command(
 /// Handle the 'list' command
 pub fn handle_list_command(
     sub_matches: &ArgMatches,
-    tasks: &HashMap<String, Task>,
+    _tasks: &HashMap<String, Task>,
     user: &User,
     username: &str,
     password: &str,

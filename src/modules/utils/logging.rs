@@ -1,7 +1,6 @@
 use env_logger::{Builder, WriteStyle};
 use log::{error, info, warn, LevelFilter};
 use std::fs::OpenOptions;
-use std::io;
 
 /// Initialize the logging system with both file and console output
 pub fn initialize_logging() -> Result<(), Box<dyn std::error::Error>> {

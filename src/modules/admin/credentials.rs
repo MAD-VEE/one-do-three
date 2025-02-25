@@ -28,10 +28,14 @@ impl SecureAdminManager {
             return Err("Admin credentials already initialized".to_string());
         }
 
+        // Generate a secure salt for admin password
         let salt = crate::modules::encryption::keys::generate_random_salt();
+
+        // Hash the password with the salt
         let password_hash =
             crate::modules::encryption::keys::derive_key_from_passphrase(password, &salt);
 
+        // Store both salt and hash
         let admin_data = format!("{}:{}", hex::encode(&salt), hex::encode(password_hash));
 
         self.keyring
@@ -71,9 +75,14 @@ impl SecureAdminManager {
             return Err("Current password is incorrect".to_string());
         }
 
+        // Generate new salt
         let new_salt = crate::modules::encryption::keys::generate_random_salt();
+
+        // Hash the new password
         let new_hash =
             crate::modules::encryption::keys::derive_key_from_passphrase(new_password, &new_salt);
+
+        // Store new credentials
         let admin_data = format!("{}:{}", hex::encode(&new_salt), hex::encode(new_hash));
 
         self.keyring
@@ -82,13 +91,15 @@ impl SecureAdminManager {
     }
 }
 
-/// Secure storage handler for admin configuration
+// Secure storage handler for admin configuration
+// This struct provides encrypted keyring storage for admin settings
 pub struct SecureAdminConfig {
-    keyring: Entry,
-    master_key: crate::modules::security::SecureMasterKey,
+    keyring: Entry, // Keyring entry specifically for admin config
+    master_key: crate::modules::security::SecureMasterKey, // Master key for encryption/decryption
 }
 
 impl SecureAdminConfig {
+    // Initialize secure storage handler with dedicated keyring entry
     pub fn new() -> Self {
         Self {
             keyring: Entry::new("one-do-three", "admin-config")
@@ -99,22 +110,28 @@ impl SecureAdminConfig {
 
     /// Save admin configuration securely to keyring using encryption
     pub fn save_config(&self, config: &AdminConfig) -> Result<(), String> {
+        // Get the master key for encryption
         let master_key = self
             .master_key
             .get_key()
             .map_err(|e| format!("Failed to get master key: {}", e))?;
 
+        // Generate new IV for each save operation for better security
         let iv = crate::modules::encryption::keys::generate_random_iv();
 
+        // Convert config to JSON string for storage
         let config_json = serde_json::to_string(config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
+        // Encrypt the configuration data
         let encrypted_data = encrypt_data(&config_json, &master_key, &iv);
 
+        // Combine IV and encrypted data for storage
         let mut storage_data = Vec::new();
         storage_data.extend_from_slice(&iv);
         storage_data.extend_from_slice(&encrypted_data);
 
+        // Store as base64 encoded string in keyring
         let encoded_data = base64.encode(&storage_data);
         self.keyring
             .set_password(&encoded_data)
@@ -123,30 +140,37 @@ impl SecureAdminConfig {
 
     /// Load admin configuration securely from keyring
     pub fn load_config(&self) -> Result<AdminConfig, String> {
+        // Get the master key for decryption
         let master_key = self
             .master_key
             .get_key()
             .map_err(|e| format!("Failed to get master key: {}", e))?;
 
+        // Attempt to retrieve stored configuration
         match self.keyring.get_password() {
             Ok(encoded_data) => {
+                // Decode the base64 stored data
                 let storage_data = base64
                     .decode(&encoded_data)
                     .map_err(|e| format!("Failed to decode stored data: {}", e))?;
 
+                // Ensure we have at least enough data for the IV
                 if storage_data.len() < 16 {
-                    return Ok(AdminConfig::new());
+                    return Ok(AdminConfig::new()); // Return new config if data is invalid
                 }
 
+                // Split IV and encrypted data
                 let iv = &storage_data[..16];
                 let encrypted_data = &storage_data[16..];
 
+                // Decrypt and parse the configuration
                 let decrypted_data = decrypt_data(encrypted_data, &master_key, iv)
                     .map_err(|e| format!("Failed to decrypt config: {}", e))?;
 
                 serde_json::from_str(&decrypted_data)
                     .map_err(|e| format!("Failed to parse config: {}", e))
             }
+            // If no configuration exists yet, return a new default configuration
             Err(_) => Ok(AdminConfig::new()),
         }
     }
@@ -157,6 +181,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// Test admin credential initialization
     fn test_admin_credentials() {
         let admin_manager = SecureAdminManager::new();
         let test_password = "AdminTest123!";

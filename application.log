@@ -263,3 +263,11 @@
 [2025-02-23T11:12:14Z INFO  one_do_three one_do_three] Logging system initialized
 [2025-02-23T11:12:21Z INFO  one_do_three one_do_three] Auth event: type=login, user=be***22, success=true, timestamp=2025-02-23 12:12:21, details=Some("using cached credentials")
 [2025-02-23T11:13:18Z INFO  one_do_three one_do_three] Data operation: op=add_task, user=be***22, resource=new task1, success=true, timestamp=2025-02-23 12:13:18, details=None
+[2025-02-24T23:15:57Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Logging system initialized
+[2025-02-24T23:16:37Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Logging system initialized
+[2025-02-24T23:16:53Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Logging system initialized
+[2025-02-24T23:16:59Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Logging system initialized
+[2025-02-24T23:17:26Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-25 00:17:26, details=Some("starting user registration")
+[2025-02-24T23:17:28Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Data operation: op=create_user, user=****, resource=user_store, success=true, timestamp=2025-02-25 00:17:28, details=Some("user created and store saved")
+[2025-02-24T23:17:52Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Data operation: op=verify_registration, user=****, resource=user_store, success=true, timestamp=2025-02-25 00:17:52, details=Some("User verified successfully")
+[2025-02-24T23:18:33Z INFO  one_do_three::modules::utils::logging one_do_three::modules::utils::logging] Data operation: op=change_password, user=****, resource=user_store, success=true, timestamp=2025-02-25 00:18:33, details=Some("Password changed successfully")

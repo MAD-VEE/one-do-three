@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::Path;
 
 use super::model::Task;
 use crate::modules::auth::User;
@@ -193,10 +192,15 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use tempfile::NamedTempFile;
 
+    // Helper function to create a test user with a valid task file
     fn create_test_user_with_task_file() -> (User, NamedTempFile, String) {
+        // Create a task file in the temp directory
+        // Remove unused variable:
+        // let task_file_path = format!("{}/user_test.dat", temp_path);
         let task_file = NamedTempFile::new().unwrap();
         let task_file_path = task_file.path().to_str().unwrap().to_string();
 
+        // Create a test user
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -252,7 +256,9 @@ mod tests {
     }
 
     #[test]
+    /// Test loading tasks with wrong password
     fn test_wrong_password_load() {
+        // Create test user and task file
         let (user, _temp_file, _) = create_test_user_with_task_file();
         let correct_password = "TestPassword123!";
         let wrong_password = "WrongPassword123!";
@@ -285,6 +291,7 @@ mod tests {
 
     #[test]
     fn test_passphrase_verification() {
+        // Create test user and task file
         let (user, _temp_file, _) = create_test_user_with_task_file();
         let password = "TestPassword123!";
 

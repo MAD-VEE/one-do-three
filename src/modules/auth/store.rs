@@ -18,6 +18,7 @@ pub enum VerificationStatus {
 }
 
 impl VerificationStatus {
+    // Helper method to check if verified
     pub fn is_verified(&self) -> bool {
         matches!(self, VerificationStatus::Verified)
     }
@@ -39,39 +40,48 @@ pub struct User {
     pub verification_status: VerificationStatus,
 }
 
+// Functions to handle password management
 impl User {
-    /// Function to generate a secure, unique filename for user's tasks
+    // Function to generate a secure, unique filename for user's tasks
+    // This prevents information disclosure and filesystem security issues
     pub fn generate_task_filename(&self) -> io::Result<String> {
         // Create tasks directory if it doesn't exist
         std::fs::create_dir_all("tasks")?;
 
         // Create a unique identifier by combining username and creation timestamp
+        // This ensures uniqueness even if usernames are reused
         let unique_id = format!("{}{}", self.username, self.created_at);
 
         // Use SHA-256 to create a secure hash of the unique identifier
+        // This prevents directory traversal attacks and special character issues
         let filename_hash = sha2::Sha256::digest(unique_id.as_bytes());
 
         // Convert first 8 bytes of hash to hex for a shorter but still unique filename
+        // Using 8 bytes (16 hex chars) gives us 2^64 possible filenames
         let safe_filename = hex::encode(&filename_hash[..8]);
 
         // Store in the tasks subdirectory with a consistent prefix and extension
+        // The .dat extension obscures the file content type
         Ok(format!("tasks/user_{}.dat", safe_filename))
     }
 }
 
-/// Container for all users with encryption metadata for secure storage
+// Container for all users with encryption metadata for secure storage, and a token store to track active reset tokens, plus registration verifications
 #[derive(Serialize, Deserialize)]
 pub struct UserStore {
     pub users: HashMap<String, User>,
     pub salt: Vec<u8>,
     pub iv: Vec<u8>,
     pub reset_tokens: HashMap<String, super::tokens::PasswordResetToken>,
-    pub reset_attempts: HashMap<String, super::tokens::ResetAttemptTracker>,
+    pub reset_attempts: HashMap<String, super::tokens::ResetAttemptTracker>, // Tracks reset attempts by email
     pub registration_verifications: HashMap<String, super::verification::RegistrationVerification>,
 }
 
+// Implementation block for UserStore to handle user management operations
 impl UserStore {
-    /// Function to add a new user to the store
+    // Function to add a new user to the store
+    // Takes ownership of username, email and password strings
+    // Returns io::Result to handle potential errors
     pub fn add_user(
         &mut self,
         username: String,
@@ -105,8 +115,8 @@ impl UserStore {
 
         // Create new User struct with initial values
         let mut user = User {
-            username: original_username.clone(),
-            username_normalized: username_normalized.clone(),
+            username: original_username.clone(), // Store the original case
+            username_normalized: username_normalized.clone(), // Store normalized version
             email,
             password_hash: password_hash_hex,
             created_at: current_time,
@@ -115,7 +125,7 @@ impl UserStore {
             last_failed_attempt: 0,
             tasks_file: String::new(),
             last_activity: current_time,
-            verification_status: VerificationStatus::Unverified,
+            verification_status: VerificationStatus::Unverified, // Initialize as unverified
         };
 
         // Generate secure filename for user's tasks
@@ -146,17 +156,20 @@ pub fn create_user_store() -> UserStore {
         iv: generate_random_iv(),
         reset_tokens: HashMap::new(),
         reset_attempts: HashMap::new(),
-        registration_verifications: HashMap::new(),
+        registration_verifications: HashMap::new(), // Initialize verification
     }
 }
 
-// Functions to save and load UserStore with master key encryption
+// Function to save UserStore to file
+// Modified function to save the user store to file using the secure master key
 pub fn save_user_store(store: &UserStore) -> io::Result<()> {
     use crate::modules::security::SecureMasterKey;
-    use base64::{engine::general_purpose::STANDARD as base64, Engine as _};
+    // use base64::{engine::general_purpose::STANDARD as base64, Engine as _};
 
     // Create an instance of secure key management and get the master key
     let secure_key = SecureMasterKey::new();
+
+    // Retrieve the master key from secure storage
     let master_key = secure_key.get_key()?;
 
     // Convert the user store to a JSON string
@@ -176,6 +189,7 @@ pub fn save_user_store(store: &UserStore) -> io::Result<()> {
     Ok(())
 }
 
+// Modified function to load the user store from file using the secure master key
 pub fn load_user_store() -> io::Result<UserStore> {
     use crate::modules::security::SecureMasterKey;
     use std::fs::File;
@@ -199,7 +213,7 @@ pub fn load_user_store() -> io::Result<UserStore> {
 
             // Check if file has minimum required data (salt + iv = 32 bytes)
             if file_data.len() >= 32 {
-                let salt = file_data[..16].to_vec();
+                let _salt = file_data[..16].to_vec();
                 let iv = file_data[16..32].to_vec();
                 let encrypted_data = &file_data[32..];
 
@@ -225,8 +239,12 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
+    // Test fixture to create a temporary user store for testing
     fn setup_test_user_store() -> (UserStore, NamedTempFile) {
+        // Create a temporary file for the user store
         let temp_file = NamedTempFile::new().unwrap();
+
+        // Create a new UserStore with test data
         let store = UserStore {
             users: HashMap::new(),
             salt: generate_random_salt(),
@@ -235,13 +253,17 @@ mod tests {
             reset_attempts: HashMap::new(),
             registration_verifications: HashMap::new(),
         };
+
+        // Return the store and temp file (to keep it from being dropped)
         (store, temp_file)
     }
 
     #[test]
+    /// Test user creation and verification
     fn test_user_creation() {
         let (mut store, _temp_file) = setup_test_user_store();
 
+        // Add test user
         let result = store.add_user(
             "TestUser".to_string(),
             "test@example.com".to_string(),
@@ -249,19 +271,23 @@ mod tests {
         );
         assert!(result.is_ok());
 
-        assert!(store.users.contains_key("testuser"));
+        // Verify user was added correctly
+        assert!(store.users.contains_key("testuser")); // Should use normalized key
         let user = store.users.get("testuser").unwrap();
-        assert_eq!(user.username, "TestUser");
+        assert_eq!(user.username, "TestUser"); // Should maintain original case
         assert_eq!(user.email, "test@example.com");
 
+        // Test that password hash was created correctly
         let password_hash = hex::encode(derive_key_from_passphrase("Password123!", &store.salt));
         assert_eq!(user.password_hash, password_hash);
     }
 
     #[test]
+    /// Test verification status management
     fn test_verification_status() {
         let (mut store, _temp_file) = setup_test_user_store();
 
+        // Add to store
         store
             .add_user(
                 "UnverifiedUser".to_string(),
@@ -270,15 +296,17 @@ mod tests {
             )
             .unwrap();
 
+        // Verify the user is unverified
         let user = store.users.get("unverifieduser").unwrap();
         assert!(!user.verification_status.is_verified());
 
-        // Test enum variants
+        // Test verification status enum methods
         assert!(VerificationStatus::Verified.is_verified());
         assert!(!VerificationStatus::Unverified.is_verified());
     }
 
     #[test]
+    /// Test user task file generation
     fn test_task_file_generation() {
         let (mut store, _temp_file) = setup_test_user_store();
 

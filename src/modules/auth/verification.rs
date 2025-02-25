@@ -23,7 +23,12 @@ pub enum VerificationResult {
     Invalid,       // Token is invalid
 }
 
-/// Function to verify registration token
+// Function to verify registration token
+// This function now properly saves the store after successful verification and handles flow control
+// Parameters:
+// - username: The username of the user being verified
+// - store: Mutable reference to the UserStore to allow updating verification status
+// Returns: VerificationResult indicating the outcome of the verification process
 pub fn verify_registration_token(username: &str, store: &mut UserStore) -> VerificationResult {
     // Set up attempt limiting for verification
     let mut attempts = 0;
@@ -157,8 +162,9 @@ mod tests {
     }
 
     #[test]
+    /// Test token expiration handling
     fn test_verification_token_expiration() {
-        let (mut store, mut verification, _) = setup_test_verification();
+        let (mut store, verification, _) = setup_test_verification();
 
         // Add verification to store
         store
@@ -188,6 +194,7 @@ mod tests {
     }
 
     #[test]
+    /// Test verification attempt limiting
     fn test_verification_attempt_limiting() {
         // Mock validation function to simulate multiple attempts
         fn mock_validate_token(attempt: u32, max_attempts: u32) -> bool {
@@ -196,7 +203,7 @@ mod tests {
 
         // Set up attempt limiting
         let max_attempts = 3;
-        let mut attempts = 0;
+        let attempts = 0;
 
         // Test various attempts
         assert!(mock_validate_token(attempts + 1, max_attempts)); // First attempt

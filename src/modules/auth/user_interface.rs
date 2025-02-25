@@ -1,11 +1,11 @@
 // src/modules/auth/user_interface.rs
 use rand::prelude::*;
-use std::io::{self, Write};
+use std::io::{self};
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH}; // This will import SampleRange and other useful traits
 
 use super::password::{read_password, validate_password};
-use super::store::{save_user_store, UserStore, VerificationStatus};
+use super::store::{save_user_store, UserStore};
 use super::tokens::SecurePasswordCache;
 use super::verification::{verify_registration_token, VerificationResult};
 use crate::modules::utils::io::read_line;
@@ -56,7 +56,11 @@ pub fn show_initial_options() {
     println!("\nEnter your choice         (1-4 or command):");
 }
 
-/// Main authentication flow to include initial options
+// Main authentication flow to include initial options
+// This function handles the main authentication loop and all possible authentication paths
+// Parameters:
+// - store: Mutable reference to UserStore for managing user data
+// Returns: Option<(String, String)> containing (username, password) if authentication succeeds
 pub fn main_auth_flow(store: &mut UserStore) -> Option<(String, String)> {
     loop {
         show_initial_options();
@@ -327,7 +331,10 @@ pub fn handle_authenticated_session(store: &mut UserStore, username: &str, passw
                 handle_profile_command(sub_matches, store, username, password, &cache);
             }
             Some(("change-password", _)) => {
-                crate::auth::password::handle_password_change(store, username, &cache);
+                match crate::auth::password::handle_password_change(store, username, &cache) {
+                    Ok(_) => println!("Password changed successfully!"),
+                    Err(e) => println!("Failed to change password: {}", e),
+                }
             }
             Some(("delete-account", _)) => {
                 match handle_account_deletion(store, username, password, &cache) {
@@ -342,7 +349,8 @@ pub fn handle_authenticated_session(store: &mut UserStore, username: &str, passw
     }
 }
 
-/// Function to handle user authentication with proper welcome messages and username case preservation
+// Function to handle user authentication with proper welcome messages and username case preservation
+// Returns Option<(String, String)> where the tuple contains (normalized_username, password)
 pub fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
     let cache = SecurePasswordCache::new();
 
@@ -528,7 +536,7 @@ pub fn authenticate_user(store: &mut UserStore) -> Option<(String, String)> {
 }
 
 /// Function to clean up user's task files
-pub fn cleanup_user_tasks(username: &str, store: &UserStore) -> Result<(), io::Error> {
+pub fn cleanup_user_tasks(_username: &str, store: &UserStore) -> Result<(), io::Error> {
     // Create set of valid task files (files belonging to current users)
     let valid_files: std::collections::HashSet<String> =
         store.users.values().map(|u| u.tasks_file.clone()).collect();
@@ -628,7 +636,8 @@ pub fn handle_account_deletion(
     password: &str,
     cache: &SecurePasswordCache,
 ) -> DeletionStatus {
-    // Initialize cleanup status with only the fields we use
+    // Initialize cleanup status with only the field we use
+    // (Removing unused fields to fix warnings while maintaining functionality)
     let mut cleanup_status = CleanupStatus {
         task_file_removed: false,
         cache_cleared: false,
@@ -1244,7 +1253,7 @@ pub fn handle_profile_command(
     sub_matches: &clap::ArgMatches,
     store: &mut UserStore,
     username: &str,
-    password: &str,
+    _password: &str,
     cache: &SecurePasswordCache,
 ) {
     // First, check if the user's session is still valid

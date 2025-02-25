@@ -4,7 +4,6 @@ use lettre::transport::smtp::PoolConfig;
 use lettre::{Message, SmtpTransport, Transport};
 use rand::distributions::Uniform;
 use rand::Rng;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::manager::SecureEmailManager;
 use crate::modules::auth::tokens::PasswordResetToken;
@@ -60,7 +59,11 @@ pub fn send_email(to_email: &str, subject: &str, body: &str) -> Result<(), Strin
     }
 }
 
-/// Function to send registration verification token
+// Function to send registration verification token
+// This function sends a verification email with a properly formatted template
+// Parameters:
+// - email: The recipient's email address
+// Returns: Result containing the generated token or an error message
 pub fn send_registration_verification(email: &str) -> Result<String, String> {
     // Generate 6-digit token using random numbers
     let token: String = rand::thread_rng()
@@ -125,10 +128,10 @@ pub fn send_reset_email(reset_token: &PasswordResetToken) -> Result<(), String> 
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
+    /// Test mock email sending for verification
     fn test_mock_email_sending() {
+        // Since we can't actually send emails in tests, we'll mock the function
         struct MockEmailSender {
             last_email: Option<(String, String, String)>,
         }
@@ -144,7 +147,10 @@ mod tests {
             }
         }
 
+        // Create the mock sender
         let mut email_sender = MockEmailSender::new();
+
+        // Send a verification email
         let to = "test@example.com";
         let subject = "Welcome to One-Do-Three - Verify Your Account";
         let token = "123456";
@@ -162,9 +168,11 @@ mod tests {
             token
         );
 
+        // Send the email
         let result = email_sender.send_email(to, subject, &body);
         assert!(result.is_ok());
 
+        // Verify the email details were stored
         let (stored_to, stored_subject, stored_body) = email_sender.last_email.unwrap();
         assert_eq!(stored_to, to);
         assert_eq!(stored_subject, subject);
@@ -173,6 +181,7 @@ mod tests {
     }
 
     #[test]
+    /// Test email template for verification
     fn test_verification_email_template() {
         let token = "123456";
         let email_body = format!(
@@ -189,7 +198,10 @@ mod tests {
             token
         );
 
+        // Verify email contains the token
         assert!(email_body.contains(token));
+
+        // Verify email contains important information
         assert!(email_body.contains("verify your account"));
         assert!(email_body.contains("expire in 24 hours"));
     }

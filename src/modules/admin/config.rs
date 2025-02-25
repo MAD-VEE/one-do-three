@@ -129,7 +129,9 @@ mod tests {
     use super::*;
 
     #[test]
+    /// Test the AdminAuthTracker functionality
     fn test_admin_auth_tracker() {
+        // Create a new tracker
         let mut tracker = AdminAuthTracker::new();
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -172,6 +174,7 @@ mod tests {
     }
 
     #[test]
+    /// Test admin setup token functionality
     fn test_setup_token() {
         let mut config = AdminConfig::new();
 

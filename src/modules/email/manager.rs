@@ -127,6 +127,7 @@ mod tests {
     }
 
     #[test]
+    /// Test handling of SecurityEmailManager
     fn test_email_manager() {
         let mut email_manager = MockEmailManager::new();
 

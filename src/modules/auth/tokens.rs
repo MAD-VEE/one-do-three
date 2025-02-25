@@ -18,7 +18,7 @@ pub struct PasswordResetToken {
     pub token: String,
     pub expires_at: u64,
     pub user_email: String,
-    pub username: String,
+    pub username: String, // Adding username to track which user the token belongs to
 }
 
 /// Structure to track password reset attempts to prevent abuse
@@ -185,6 +185,7 @@ mod tests {
             }
         }
 
+        // Test token storage and verification
         let mut token_manager = MockSecureTokenManager::new();
 
         // Store a token

@@ -35,6 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// Test email validation
     fn test_email_validation() {
         // Valid emails
         assert!(is_valid_email("user@example.com"));
